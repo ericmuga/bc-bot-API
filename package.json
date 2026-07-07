@@ -1,0 +1,21 @@
+{
+  "name": "fcl-bot-integration-api",
+  "version": "1.0.0",
+  "description": "Swagger-documented BOT integration API for FCL Business Central imported orders.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mssql": "^11.0.1",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

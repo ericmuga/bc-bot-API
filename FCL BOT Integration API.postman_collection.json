@@ -1,0 +1,537 @@
+{
+  "info": {
+    "_postman_id": "e41f9b8f-0ea1-4b4d-9f0a-1b858c7f2e90",
+    "name": "FCL BOT Integration API",
+    "description": "Postman collection for the FCL BOT Integration API. Orders are staged into Business Central Imported Orders; customers and items are read-only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "x-api-key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{apiKey}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3500"
+    },
+    {
+      "key": "apiKey",
+      "value": "<BOT_API_KEY>"
+    },
+    {
+      "key": "company",
+      "value": "FCL"
+    },
+    {
+      "key": "externalDocumentNo",
+      "value": "BOT-100045"
+    },
+    {
+      "key": "customerNo",
+      "value": "90000"
+    },
+    {
+      "key": "salespersonCode",
+      "value": "019"
+    },
+    {
+      "key": "itemNo",
+      "value": "PDA001"
+    }
+  ],
+  "item": [
+    {
+      "name": "Docs",
+      "item": [
+        {
+          "name": "OpenAPI JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/openapi.json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openapi.json"
+              ]
+            },
+            "description": "Public OpenAPI document. Does not require API key."
+          },
+          "response": []
+        },
+        {
+          "name": "OpenAPI YAML",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/openapi.yaml",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openapi.yaml"
+              ]
+            },
+            "description": "Public OpenAPI YAML. Does not require API key."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            },
+            "description": "Checks API and SQL connectivity."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Health check is OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().ok).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "API Readiness Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/status?company={{company}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
+              ]
+            },
+            "description": "Detailed readiness check. Confirms SQL connectivity, resolved Business Central SQL tables, and configured defaults."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('API readiness is OK', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.ok).to.eql(true);",
+                  "  pm.expect(json.database.server).to.not.include('172.');",
+                  "  pm.expect(json.database.database).to.not.eql('FCL');",
+                  "  pm.expect(json.tables.importedOrders).to.be.a('string');",
+                  "  pm.expect(json.tables.customer).to.be.a('string');",
+                  "  pm.expect(json.tables.item).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "BC Order Status by External Document No",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/status/{{externalDocumentNo}}?company={{company}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "status",
+                "{{externalDocumentNo}}"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
+              ]
+            },
+            "description": "Primary BOT status check. Accepts the external document number and returns current BC status from Sales Invoice Header, Sales Header, or Imported Orders."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('BC order status is returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json.orderStatus).to.be.a('string');",
+                  "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Sales Header', 'Posted Sales Invoice']);",
+                  "  pm.expect(json.sourceTable).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Master Data",
+      "item": [
+        {
+          "name": "List Web Customers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&search={{customerNo}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "search",
+                  "value": "{{customerNo}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Reads BC Customer records filtered by CUSTOMERS_WHERE, defaulting to Web Customer = true and Blocked = false. Response includes nested shipTo entries with code and name."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Customers response has nested ship-to array', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  if (json.data.length) {",
+                  "    pm.expect(json.data[0].shipTo).to.be.an('array');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List PDA Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?company={{company}}&search={{itemNo}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "search",
+                  "value": "{{itemNo}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Reads BC Item records filtered by ITEMS_WHERE, defaulting to PDA Item = true and Blocked = false."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Imported Orders",
+      "item": [
+        {
+          "name": "Create or Update Imported Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"{{externalDocumentNo}}\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"customerSpecification\": \"No onions\",\n  \"externalOrderUrl\": \"https://bot.example.com/orders/{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"KG\",\n      \"productSpecification\": \"Vacuum packed\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"KG\",\n      \"productSpecification\": \"Tray packed\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders"
+              ]
+            },
+            "description": "Stages a BOT order into BC Imported Orders. Existing lines with the same External Document No. and Line No. are updated."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported order is staged', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json.lineCount).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Imported Orders with Filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders?company={{company}}&externalDocumentNo={{externalDocumentNo}}&customerNo={{customerNo}}&shipmentDate=2026-06-22&shipToCode=NAIROBI&salespersonCode={{salespersonCode}}&status=Order&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "externalDocumentNo",
+                  "value": "{{externalDocumentNo}}"
+                },
+                {
+                  "key": "customerNo",
+                  "value": "{{customerNo}}"
+                },
+                {
+                  "key": "shipmentDate",
+                  "value": "2026-06-22"
+                },
+                {
+                  "key": "shipmentDateFrom",
+                  "value": "2026-06-01",
+                  "disabled": true
+                },
+                {
+                  "key": "shipmentDateTo",
+                  "value": "2026-06-30",
+                  "disabled": true
+                },
+                {
+                  "key": "shipToCode",
+                  "value": "NAIROBI"
+                },
+                {
+                  "key": "salespersonCode",
+                  "value": "{{salespersonCode}}"
+                },
+                {
+                  "key": "status",
+                  "value": "Order"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Lists Imported Orders lines with optional query filters: externalDocumentNo, customerNo/sellToCustomerNo, shipmentDate or shipmentDateFrom/shipmentDateTo, shipToCode, shipToName, salespersonCode, itemNo, company, status, limit."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Filtered imported orders are returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.count).to.be.a('number');",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  if (json.data.length) {",
+                  "    pm.expect(json.data[0]).to.have.property('externalDocumentNo');",
+                  "    pm.expect(json.data[0]).to.have.property('statusName');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Imported Order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders/{{externalDocumentNo}}?company={{company}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders",
+                "{{externalDocumentNo}}"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
+              ]
+            },
+            "description": "Reads the staged imported order lines from BC Imported Orders by External Document No."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported order lines are returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(json.lines[0]).to.have.property('productSpecification');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Imported Order Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders/{{externalDocumentNo}}/status?company={{company}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders",
+                "{{externalDocumentNo}}",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
+              ]
+            },
+            "description": "Checks staged document status by line and also checks Sales Header / Sales Invoice Header. Status mapping: 0 Order, 1 Execute, 2 Post, 3 Cancelled, 4 Error. Imported Orders status Post means the live Sales Order exists; final posted state is confirmed from Sales Invoice Header."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported order status is returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json.state).to.be.oneOf(['imported', 'processing', 'salesOrder', 'posted', 'cancelled', 'error']);",
+                  "  pm.expect(json.statusCounts).to.be.an('object');",
+                  "  pm.expect(json.salesDocuments).to.be.an('object');",
+                  "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}
