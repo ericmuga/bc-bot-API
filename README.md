@@ -364,6 +364,7 @@ Error = 4
   "shipToName": "Nairobi Outlet",
   "customerSpecification": "No onions",
   "company": "FCL",
+  "pdaOrder": true,
   "externalOrderUrl": "https://bot.example.com/orders/BOT-100045",
   "lines": [
     {
@@ -377,7 +378,9 @@ Error = 4
 }
 ```
 
-For invoice staging into `Imported SalesAL`, use `documentType = invoice`. Invoice lines require `unitPrice`; `lineAmount` defaults to `quantity * unitPrice`; header totals default from the lines when omitted.
+For order staging into `Imported Orders`, `pdaOrder` is optional and defaults to `false`. When set to `true`, the BC import job maps it to `Sales Header`.`PDA Order`.
+
+For invoice staging into `Imported SalesAL`, use `documentType = invoice`. Invoice lines require `unitPrice`; `lineAmount` defaults to `quantity * unitPrice`; header totals default from the lines when omitted. The `pdaOrder` flag is ignored for invoices because they are staged through `Imported SalesAL`.
 The API automatically stamps `Expected Line Count` on every staged line from `lines.length`; the BOT does not need to send this value separately.
 
 ```json

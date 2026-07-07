@@ -38,6 +38,13 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           shipToCode: { type: 'string', nullable: true, example: 'NAIROBI' },
           shipToName: { type: 'string', nullable: true, example: 'Nairobi Outlet' },
           customerSpecification: { type: 'string', nullable: true, example: 'No onions' },
+          pdaOrder: {
+            type: 'boolean',
+            nullable: true,
+            default: false,
+            example: true,
+            description: 'Order-only flag. When documentType=order, this is staged on Imported Orders and mapped to Sales Header PDA Order by the BC import job.'
+          },
           location: { type: 'string', nullable: true, example: '3535', description: 'Invoice default location; line.location can override it.' },
           totalHeaderAmount: { type: 'number', nullable: true, example: 1972, description: 'Invoice header total amount used by Import SalesAL posting validation.' },
           totalHeaderQty: { type: 'number', nullable: true, example: 17, description: 'Invoice header total quantity; defaults to the sum of line quantities.' },
@@ -255,6 +262,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 expectedLineCount: { type: 'integer', example: 2 },
                 error: { type: 'boolean', nullable: true, example: false },
                 errorMessage: { type: 'string', nullable: true, example: '' },
+                pdaOrder: { type: 'boolean', nullable: true, example: true },
                 productSpecification: { type: 'string', nullable: true, example: 'Vacuum packed' }
               }
             }

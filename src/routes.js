@@ -86,6 +86,29 @@ function optionalNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function optionalBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y'].includes(normalized)) {
+    return true;
+  }
+
+  if (['false', '0', 'no', 'n'].includes(normalized)) {
+    return false;
+  }
+
+  const error = new Error('pdaOrder must be a boolean.');
+  error.statusCode = 400;
+  throw error;
+}
+
 function toBcDate(value, name) {
   const text = requireString(value, name);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
@@ -383,6 +406,7 @@ async function getImportedOrderLinesByExternalDocumentNo(pool, tables, externalD
         ${bracket('Status')} AS status,
         ${bracket('Expected Line Count')} AS expectedLineCount,
         ${bracket('Error Message')} AS errorMessage,
+        ${bracket('PDA Order')} AS pdaOrder,
         ${bracket('Product Specification')} AS productSpecification
       FROM ${tables.importedOrders}
       WHERE ${bracket('External Document No_')} = @externalDocumentNo
@@ -803,6 +827,7 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
       ${bracket('Customer Specification')} AS customerSpecification,
       ${bracket('Company')} AS company,
       ${bracket('External Order URL')} AS externalOrderUrl,
+      ${bracket('PDA Order')} AS pdaOrder,
       ${bracket('Product Specification')} AS productSpecification
     FROM ${importedOrders}
     ${whereClause}
@@ -845,6 +870,7 @@ router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res)
         ${bracket('Customer Specification')} AS customerSpecification,
         ${bracket('Company')} AS company,
         ${bracket('External Order URL')} AS externalOrderUrl,
+        ${bracket('PDA Order')} AS pdaOrder,
         ${bracket('Product Specification')} AS productSpecification
       FROM ${importedOrders}
       WHERE ${bracket('External Document No_')} = @externalDocumentNo
@@ -933,6 +959,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
   const shipToName = optionalString(body.shipToName);
   const customerSpecification = optionalString(body.customerSpecification);
   const externalOrderUrl = optionalString(body.externalOrderUrl);
+  const pdaOrder = optionalBoolean(body.pdaOrder);
   const location = optionalString(body.location);
   const billTo = optionalString(body.billTo);
   const cuInvoiceNo = optionalString(body.cuInvoiceNo);
@@ -1062,6 +1089,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('productSpecification', sql.NVarChar, line.productSpecification)
           .input('company', sql.NVarChar, company.code)
           .input('externalOrderUrl', sql.NVarChar, externalOrderUrl)
+          .input('pdaOrder', sql.Bit, pdaOrder ? 1 : 0)
           .input('expectedLineCount', sql.Int, expectedLineCount);
 
         await request.query(`
@@ -1081,6 +1109,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             ${bracket('Company')},
             ${bracket('External Order URL')},
             ${bracket('Product Specification')},
+            ${bracket('PDA Order')},
             ${bracket('Expected Line Count')},
             ${bracket('Error Message')}
           )
@@ -1100,6 +1129,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @company,
             @externalOrderUrl,
             @productSpecification,
+            @pdaOrder,
             @expectedLineCount,
             ''
           )
@@ -1113,6 +1143,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
       documentType,
       externalDocumentNo,
       lineCount: lines.length,
+      pdaOrder: documentType === 'order' ? pdaOrder : undefined,
       status: 'imported'
     });
   } catch (err) {
