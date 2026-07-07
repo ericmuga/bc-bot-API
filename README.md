@@ -71,6 +71,7 @@ GET /api/items?company=RMK
 GET /api/salespeople?company=FCL
 GET /api/imported-orders?company=CM&externalDocumentNo=BOT-100045
 GET /api/status/BOT-100045?company=FLM
+POST /api/status/batch
 GET /api/imported-orders/BOT-100045/status?company=FLM
 ```
 
@@ -82,6 +83,7 @@ For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag 
 GET  /api/health
 GET  /api/status
 GET  /api/status/:externalDocumentNo
+POST /api/status/batch
 GET  /api/customers
 GET  /api/items
 GET  /api/salespeople
@@ -183,10 +185,29 @@ GET /api/FCL/status/BOT-100045
 Lookup priority:
 
 ```text
-1. Sales Invoice Header      -> orderStatus = Posted
-2. Sales Header              -> orderStatus = Open/Released/Pending Approval/Pending Prepayment
-3. Imported Orders           -> orderStatus = imported/processing/salesOrder/cancelled/error
+1. Sales Invoice Header      -> orderStatus = Invoiced
+2. Sales Cr.Memo Header      -> orderStatus = Posted Credit Memo
+3. Sales Header              -> orderStatus = Open/Released/Pending Approval/Pending Prepayment/Execute/Post
+4. Imported Orders           -> orderStatus = imported/processing/salesOrder/cancelled/error
+5. Imported SalesAL          -> orderStatus = imported/processing/posted/error
+6. Imported Return Orders    -> orderStatus = imported/salesReturnOrder/cancelled/error
+7. Imported Credit Notes AL  -> orderStatus = imported/processing/posted/error
 ```
+
+For batch checks, call `POST /api/status/batch`:
+
+```http
+POST /api/status/batch
+Content-Type: application/json
+x-api-key: <BOT_API_KEY>
+
+{
+  "company": "FCL",
+  "externalDocumentNos": ["BOT-100045", "BOT-100046", "BOT-CN-100047"]
+}
+```
+
+Missing documents are returned with `found=false`, so one unknown external document number does not fail the whole status request.
 
 `GET /api/imported-orders/:externalDocumentNo/status?company=FCL` checks a specific staged document in the selected company:
 
@@ -380,6 +401,15 @@ Error = 4
 
 For order staging into `Imported Orders`, `pdaOrder` is optional and defaults to `false`. When set to `true`, the BC import job maps it to `Sales Header`.`PDA Order`.
 
+Supported `documentType` values are:
+
+```text
+order       -> Imported Orders
+invoice     -> Imported SalesAL
+returnOrder -> Imported Return Orders
+creditNote  -> Imported Credit Notes AL
+```
+
 For invoice staging into `Imported SalesAL`, use `documentType = invoice`. Invoice lines require `unitPrice`; `lineAmount` defaults to `quantity * unitPrice`; header totals default from the lines when omitted. The `pdaOrder` flag is ignored for invoices because they are staged through `Imported SalesAL`.
 The API automatically stamps `Expected Line Count` on every staged line from `lines.length`; the BOT does not need to send this value separately.
 
@@ -414,16 +444,68 @@ The API automatically stamps `Expected Line Count` on every staged line from `li
 }
 ```
 
+For return orders, use `documentType = returnOrder`. You can pass `returnReasonCode` and `originalOrderNo` at header level or per line:
+
+```json
+{
+  "company": "FCL",
+  "documentType": "returnOrder",
+  "externalDocumentNo": "BOT-RET-100045",
+  "sellToCustomerNo": "90000",
+  "shipmentDate": "2026-06-22",
+  "salespersonCode": "019",
+  "shipToCode": "NAIROBI",
+  "returnReasonCode": "DAMAGED",
+  "originalOrderNo": "BOT-100045",
+  "lines": [
+    {
+      "lineNo": 10000,
+      "itemNo": "PDA001",
+      "quantity": 2,
+      "unitOfMeasure": "KG"
+    }
+  ]
+}
+```
+
+For credit notes, use `documentType = creditNote`. Credit-note lines require `unitPrice`, and the header should include `taxAppliedDocumentNo` so Business Central can create the Sales Credit Memo with the original fiscal invoice reference:
+
+```json
+{
+  "company": "FCL",
+  "documentType": "creditNote",
+  "externalDocumentNo": "BOT-CN-100045",
+  "sellToCustomerNo": "90000",
+  "shipmentDate": "2026-06-22",
+  "salespersonCode": "019",
+  "shipToCode": "NAIROBI",
+  "taxAppliedDocumentNo": "CU-INV-100045",
+  "returnReasonCode": "DAMAGED",
+  "lines": [
+    {
+      "lineNo": 10000,
+      "itemNo": "PDA001",
+      "quantity": 2,
+      "unitOfMeasure": "KG",
+      "unitPrice": 116
+    }
+  ]
+}
+```
+
 Before `POST /api/imported-orders` writes anything, the API checks the selected company for the same `externalDocumentNo` in:
 
 ```text
 Imported Orders
 Imported SalesAL
+Imported Return Orders
+Imported Credit Notes AL
 Sales Header
 Sales Invoice Header
+Sales Cr.Memo Header
 ```
 
-If the external document number already exists, the API returns `409 Conflict` and does not import. If it is not found, the API waits for `IMPORT_DUPLICATE_RECHECK_DELAY_MS` and checks again before inserting. This protects the BC posting handover window where a document may briefly leave `Sales Header` before appearing in `Sales Invoice Header`.
+If the external document number already exists, the API returns `409 Conflict` and does not import. If it is not found, the API waits for `IMPORT_DUPLICATE_RECHECK_DELAY_MS` and checks again before inserting. This protects the BC posting handover window where a document may briefly leave `Sales Header` before appearing in a posted table.
 
 Configure the wait in `.env`:
 

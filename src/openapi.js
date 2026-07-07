@@ -6,7 +6,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
   info: {
     title: 'FCL BOT Integration API',
     version: '1.0.0',
-    description: 'Staging API for BOT integrations. Orders are written to Business Central Imported Orders; invoices are written to Imported SalesAL; master data endpoints are read-only.'
+    description: 'Staging API for BOT integrations. Orders are written to Business Central Imported Orders; invoices are written to Imported SalesAL; return orders are written to Imported Return Orders; credit notes are written to Imported Credit Notes AL; master data endpoints are read-only.'
   },
   servers: [
     { url: baseUrl, description: 'Current server' }
@@ -26,9 +26,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         properties: {
           documentType: {
             type: 'string',
-            enum: ['order', 'invoice'],
+            enum: ['order', 'invoice', 'returnOrder', 'creditNote'],
             default: 'order',
-            description: 'order stages into Imported Orders; invoice stages into Imported SalesAL for the Import SalesAL posting process.',
+            description: 'order stages into Imported Orders; invoice stages into Imported SalesAL; returnOrder stages into Imported Return Orders; creditNote stages into Imported Credit Notes AL.',
             example: 'order'
           },
           externalDocumentNo: { type: 'string', example: 'BOT-100045' },
@@ -52,6 +52,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           cuInvoiceNo: { type: 'string', nullable: true, example: 'CU-100045' },
           cuNo: { type: 'string', nullable: true, example: 'ETR-01' },
           signingTime: { type: 'string', nullable: true, example: '2026-06-22T10:15:00' },
+          returnReasonCode: { type: 'string', nullable: true, example: 'DAMAGED', description: 'Default return reason for returnOrder or creditNote lines.' },
+          originalOrderNo: { type: 'string', nullable: true, example: 'BOT-100001', description: 'Original order reference for returnOrder payloads.' },
+          taxAppliedDocumentNo: { type: 'string', nullable: true, example: 'CU-INV-100045', description: 'Credit note reference to the original fiscal invoice/CU number.' },
           company: {
             type: 'string',
             nullable: true,
@@ -77,9 +80,11 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 quantity: { type: 'number', example: 12 },
                 unitOfMeasure: { type: 'string', example: 'KG' },
                 location: { type: 'string', nullable: true, example: '3535' },
-                unitPrice: { type: 'number', nullable: true, example: 116, description: 'Required for invoice payloads.' },
-                lineAmount: { type: 'number', nullable: true, example: 1392, description: 'Invoice line amount; defaults to quantity * unitPrice.' },
-                productSpecification: { type: 'string', nullable: true, example: 'Vacuum packed' }
+                unitPrice: { type: 'number', nullable: true, example: 116, description: 'Required for invoice and creditNote payloads.' },
+                lineAmount: { type: 'number', nullable: true, example: 1392, description: 'Invoice/credit-note line amount; defaults to quantity * unitPrice.' },
+                productSpecification: { type: 'string', nullable: true, example: 'Vacuum packed' },
+                returnReasonCode: { type: 'string', nullable: true, example: 'DAMAGED' },
+                originalOrderNo: { type: 'string', nullable: true, example: 'BOT-100001' }
               }
             }
           }
@@ -302,8 +307,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     },
     '/api/status/{externalDocumentNo}': {
       get: {
-        summary: 'Get BC order status by external document number',
-        description: 'Accepts the BOT external document number and company query parameter, then returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders or Imported SalesAL.',
+        summary: 'Get BC document status by external document number',
+        description: 'Accepts the BOT external document number and company query parameter, then returns the current BC status. Lookup priority is posted invoices, posted credit memos, live Sales Header, then imported staging tables.',
         parameters: [
           {
             name: 'externalDocumentNo',
@@ -322,7 +327,37 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               }
             }
           },
-          404: { description: 'Order not found' }
+          404: { description: 'Document not found' }
+        }
+      }
+    },
+    '/api/status/batch': {
+      post: {
+        summary: 'Get BC statuses for multiple external document numbers',
+        description: 'Accepts an array of external document numbers and returns one status object per value. Missing documents are returned with found=false instead of failing the whole request.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['externalDocumentNos'],
+                properties: {
+                  company: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' },
+                  externalDocumentNos: {
+                    type: 'array',
+                    minItems: 1,
+                    items: { type: 'string' },
+                    example: ['BOT-100045', 'BOT-100046', 'BOT-CN-100047']
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Batch status response' },
+          400: { description: 'Invalid request' }
         }
       }
     },
@@ -355,7 +390,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               }
             }
           },
-          404: { description: 'Order not found' }
+          404: { description: 'Document not found' }
         }
       }
     },
@@ -461,7 +496,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       },
       post: {
         summary: 'Create an imported sales document',
-        description: 'Writes line-based sales data into Business Central staging. documentType=order writes to Imported Orders. documentType=invoice writes to Imported SalesAL for the Import SalesAL posting process. Before writing, the API checks staging, Sales Header, and Sales Invoice Header for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
+        description: 'Writes line-based sales data into Business Central staging. documentType=order writes to Imported Orders; invoice writes to Imported SalesAL; returnOrder writes to Imported Return Orders; creditNote writes to Imported Credit Notes AL. Before writing, the API checks staging, Sales Header, posted invoices, and posted credit memos for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
         requestBody: {
           required: true,
           content: {
@@ -471,9 +506,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           }
         },
         responses: {
-          201: { description: 'Imported order staged successfully' },
+          201: { description: 'Imported document staged successfully' },
           400: { description: 'Invalid request' },
-          409: { description: 'External document number already exists in Imported Orders, Sales Header, or Sales Invoice Header' }
+          409: { description: 'External document number already exists in imported staging, Sales Header, Sales Invoice Header, or Sales Cr.Memo Header' }
         }
       }
     },
@@ -498,7 +533,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/imported-orders/{externalDocumentNo}/status': {
       get: {
         summary: 'Get imported order processing status',
-        description: 'Returns staged line counts, live Sales Header matches, and posted Sales Invoice Header matches for one external document in the selected company. Imported Orders status Post means the order has been created as a Sales Order; the final posted state is confirmed from Sales Invoice Header.',
+        description: 'Returns staged line counts, live Sales Header matches, posted Sales Invoice Header matches, and posted Sales Cr.Memo Header matches for one external document in the selected company.',
         parameters: [
           {
             name: 'externalDocumentNo',
@@ -524,7 +559,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/imported-orders/{externalDocumentNo}/errors': {
       get: {
         summary: 'Get imported document processing errors',
-        description: 'Returns hard BC processing errors stamped on Imported Orders or Imported SalesAL lines for the selected company. Incomplete payload wait messages remain visible on the status endpoint lines but are not counted as hard errors.',
+        description: 'Returns hard BC processing errors stamped on Imported Orders, Imported SalesAL, Imported Return Orders, or Imported Credit Notes AL lines for the selected company. Incomplete payload wait messages remain visible on the status endpoint lines but are not counted as hard errors.',
         parameters: [
           {
             name: 'externalDocumentNo',

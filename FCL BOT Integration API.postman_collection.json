@@ -200,7 +200,7 @@
                 }
               ]
             },
-            "description": "Primary BOT status check. Accepts the company query parameter and external document number, then returns current BC status from Sales Invoice Header, Sales Header, or Imported Orders."
+            "description": "Primary BOT status check. Accepts the company query parameter and external document number, then returns current BC status from posted documents, Sales Header, or imported staging."
           },
           "event": [
             {
@@ -212,11 +212,56 @@
                   "  pm.response.to.have.status(200);",
                   "  const json = pm.response.json();",
                   "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
-                  "  pm.expect(json.documentType).to.eql('order');",
                   "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
                   "  pm.expect(json.orderStatus).to.be.a('string');",
-                  "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Imported SalesAL', 'Sales Header', 'Posted Sales Invoice']);",
+                  "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Imported SalesAL', 'Imported Return Orders', 'Imported Credit Notes AL', 'Sales Header', 'Posted Sales Invoice', 'Posted Sales Credit Memo']);",
                   "  pm.expect(json.sourceTable).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Batch BC Status by External Document Nos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company\": \"{{company}}\",\n  \"externalDocumentNos\": [\n    \"{{externalDocumentNo}}\",\n    \"BOT-CN-100045\",\n    \"BOT-RET-100045\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/status/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "status",
+                "batch"
+              ]
+            },
+            "description": "Checks multiple external document numbers in one request. Unknown documents are returned with found=false."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Batch statuses are returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  pm.expect(json.data.length).to.be.above(0);",
                   "});"
                 ]
               }
@@ -457,6 +502,94 @@
                   "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.documentType).to.eql('invoice');",
                   "  pm.expect(json.lineCount).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create Imported Return Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentType\": \"returnOrder\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-RET-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"originalOrderNo\": \"{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"KG\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders"
+              ]
+            },
+            "description": "Stages a BOT return order into BC Imported Return Orders."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported return order is staged', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.documentType).to.eql('returnOrder');",
+                  "  pm.expect(json.lineCount).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create Imported Credit Note",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentType\": \"creditNote\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-CN-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"location\": \"3535\",\n  \"taxAppliedDocumentNo\": \"CU-INV-100045\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"totalHeaderAmount\": 232,\n  \"totalHeaderQty\": 2,\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"KG\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 232,\n      \"location\": \"3535\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders"
+              ]
+            },
+            "description": "Stages a BOT credit note into BC Imported Credit Notes AL. The BC processor creates a Sales Credit Memo and can send it to approval based on Sales & Receivables Setup."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported credit note is staged', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.documentType).to.eql('creditNote');",
+                  "  pm.expect(json.lineCount).to.eql(1);",
                   "});"
                 ]
               }

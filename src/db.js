@@ -120,39 +120,56 @@ async function resolveFirstTable(logicalNames, override, companyCode) {
   throw lastError;
 }
 
+async function resolveOptionalTable(logicalName, override, companyCode) {
+  try {
+    return await resolveTable(logicalName, override, companyCode);
+  } catch (err) {
+    return '';
+  }
+}
+
 async function getTables(companyCode) {
   const [
     importedOrders,
     importedSalesAL,
+    importedReturnOrders,
+    importedCreditNotesAL,
     customer,
     item,
     shipToAddress,
     salespersonPurchaser,
     contact,
     salesHeader,
-    salesInvoiceHeader
+    salesInvoiceHeader,
+    salesCrMemoHeader
   ] = await Promise.all([
     resolveTable('Imported Orders', config.tables.importedOrders, companyCode),
     resolveTable('Imported SalesAL', config.tables.importedSalesAL, companyCode),
+    resolveOptionalTable('Imported Return Orders', config.tables.importedReturnOrders, companyCode),
+    resolveOptionalTable('Imported Credit Notes AL', config.tables.importedCreditNotesAL, companyCode),
     resolveTable('Customer', config.tables.customer, companyCode),
     resolveTable('Item', config.tables.item, companyCode),
     resolveTable('Ship-to Address', config.tables.shipToAddress, companyCode),
     resolveFirstTable(['Salesperson/Purchaser', 'Salesperson_Purchaser'], config.tables.salespersonPurchaser, companyCode),
     resolveTable('Contact', config.tables.contact, companyCode),
     resolveTable('Sales Header', config.tables.salesHeader, companyCode),
-    resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode)
+    resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode),
+    resolveTable('Sales Cr.Memo Header', config.tables.salesCrMemoHeader, companyCode)
   ]);
 
   return {
     importedOrders,
     importedSalesAL,
+    importedReturnOrders,
+    importedCreditNotesAL,
     customer,
     item,
     shipToAddress,
     salespersonPurchaser,
     contact,
     salesHeader,
-    salesInvoiceHeader
+    salesInvoiceHeader,
+    salesCrMemoHeader
   };
 }
 

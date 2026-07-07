@@ -61,13 +61,16 @@ const config = {
   tables: {
     importedOrders: process.env.SQL_TABLE_IMPORTED_ORDERS || '',
     importedSalesAL: process.env.SQL_TABLE_IMPORTED_SALES_AL || '',
+    importedReturnOrders: process.env.SQL_TABLE_IMPORTED_RETURN_ORDERS || '',
+    importedCreditNotesAL: process.env.SQL_TABLE_IMPORTED_CREDIT_NOTES_AL || '',
     customer: process.env.SQL_TABLE_CUSTOMER || '',
     item: process.env.SQL_TABLE_ITEM || '',
     shipToAddress: process.env.SQL_TABLE_SHIP_TO_ADDRESS || '',
     salespersonPurchaser: process.env.SQL_TABLE_SALESPERSON_PURCHASER || '',
     contact: process.env.SQL_TABLE_CONTACT || '',
     salesHeader: process.env.SQL_TABLE_SALES_HEADER || '',
-    salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || ''
+    salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || '',
+    salesCrMemoHeader: process.env.SQL_TABLE_SALES_CR_MEMO_HEADER || ''
   },
   filters: {
     customers: process.env.CUSTOMERS_WHERE || '[Web Portal] = 1 AND [Blocked] = 0',
