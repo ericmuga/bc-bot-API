@@ -570,6 +570,75 @@ router.get('/items', asyncHandler(async (req, res) => {
   res.json({ company: getCompanyConfig(companyCode).code, data: result.recordset });
 }));
 
+router.get('/salespeople', asyncHandler(async (req, res) => {
+  const pool = await getPool();
+  const companyCode = companyFromRequest(req);
+  const { salespersonPurchaser, contact } = await getTables(companyCode);
+  const limit = limitFromQuery(req.query.limit);
+  const search = optionalString(req.query.search);
+
+  const request = pool.request()
+    .input('limit', sql.Int, limit)
+    .input('search', sql.NVarChar, `%${search}%`);
+  const contactColumns = await getExistingColumns(pool, contact, ['Salesperson Code', 'Phone No_', 'Name']);
+  const canJoinContacts = contactColumns.has('Salesperson Code') && contactColumns.has('Name');
+  const contactPhoneSelect = contactColumns.has('Phone No_')
+    ? `ct.${bracket('Phone No_')} AS contactPhone`
+    : `CAST('' AS nvarchar(30)) AS contactPhone`;
+  const contactJoin = canJoinContacts
+    ? `LEFT JOIN ${contact} ct ON ct.${bracket('Salesperson Code')} = sp.salespersonCode`
+    : '';
+  const contactSelect = canJoinContacts
+    ? `ct.${bracket('Name')} AS contactName, ${contactPhoneSelect}`
+    : `CAST(NULL AS nvarchar(100)) AS contactName, CAST('' AS nvarchar(30)) AS contactPhone`;
+
+  const searchClause = search
+    ? `WHERE (${bracket('Code')} LIKE @search OR ${bracket('Name')} LIKE @search)`
+    : '';
+
+  const result = await request.query(`
+    WITH FilteredSalespeople AS (
+      SELECT TOP (@limit)
+        ${bracket('Code')} AS salespersonCode,
+        ${bracket('Name')} AS name
+      FROM ${salespersonPurchaser}
+      ${searchClause}
+      ORDER BY ${bracket('Code')}
+    )
+    SELECT
+      sp.salespersonCode,
+      sp.name,
+      ${contactSelect}
+    FROM FilteredSalespeople sp
+    ${contactJoin}
+    ORDER BY sp.salespersonCode, contactName
+  `);
+
+  const salespeople = [];
+  const bySalespersonCode = new Map();
+  for (const row of result.recordset) {
+    let salesperson = bySalespersonCode.get(row.salespersonCode);
+    if (!salesperson) {
+      salesperson = {
+        salespersonCode: row.salespersonCode,
+        name: row.name,
+        contacts: []
+      };
+      bySalespersonCode.set(row.salespersonCode, salesperson);
+      salespeople.push(salesperson);
+    }
+
+    if (row.contactName) {
+      salesperson.contacts.push({
+        name: row.contactName,
+        phone: row.contactPhone || ''
+      });
+    }
+  }
+
+  res.json({ company: getCompanyConfig(companyCode).code, data: salespeople });
+}));
+
 router.get('/imported-orders', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);

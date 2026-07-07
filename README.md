@@ -68,6 +68,7 @@ For transaction `GET` endpoints, pass the flag as a query parameter:
 ```http
 GET /api/customers?company=FCL
 GET /api/items?company=RMK
+GET /api/salespeople?company=FCL
 GET /api/imported-orders?company=CM&externalDocumentNo=BOT-100045
 GET /api/status/BOT-100045?company=FLM
 GET /api/imported-orders/BOT-100045/status?company=FLM
@@ -83,6 +84,7 @@ GET  /api/status
 GET  /api/status/:externalDocumentNo
 GET  /api/customers
 GET  /api/items
+GET  /api/salespeople
 GET  /api/imported-orders
 POST /api/imported-orders
 GET  /api/imported-orders/:externalDocumentNo
@@ -249,6 +251,28 @@ Important BC lifecycle note:
         {
           "code": "NAIROBI",
           "name": "Nairobi Outlet"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Salespeople Payload
+
+`GET /api/salespeople` returns salespeople with nested contact names and phone numbers:
+
+```json
+{
+  "company": "FCL",
+  "data": [
+    {
+      "salespersonCode": "019",
+      "name": "Jane Sales",
+      "contacts": [
+        {
+          "name": "Jane Sales",
+          "phone": "+254700000000"
         }
       ]
     }

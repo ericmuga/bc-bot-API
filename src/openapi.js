@@ -79,6 +79,23 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           }
         }
       },
+      Salesperson: {
+        type: 'object',
+        properties: {
+          salespersonCode: { type: 'string', example: '019' },
+          name: { type: 'string', example: 'Jane Sales' },
+          contacts: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', example: 'Jane Sales' },
+                phone: { type: 'string', example: '+254700000000' }
+              }
+            }
+          }
+        }
+      },
       ApiStatus: {
         type: 'object',
         properties: {
@@ -336,6 +353,36 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         ],
         responses: {
           200: { description: 'Filtered item list' }
+        }
+      }
+    },
+    '/api/salespeople': {
+      get: {
+        summary: 'List salespeople',
+        description: 'Lists salespeople with nested contact names and phone numbers for the selected company.',
+        parameters: [
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          { name: 'search', in: 'query', schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
+        ],
+        responses: {
+          200: {
+            description: 'Salespeople with nested contacts',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    data: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/Salesperson' }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

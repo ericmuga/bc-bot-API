@@ -103,17 +103,54 @@ async function resolveTable(logicalName, override, companyCode) {
   return table;
 }
 
+async function resolveFirstTable(logicalNames, override, companyCode) {
+  if (override) {
+    return qualifiedTableName(override);
+  }
+
+  let lastError;
+  for (const logicalName of logicalNames) {
+    try {
+      return await resolveTable(logicalName, '', companyCode);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError;
+}
+
 async function getTables(companyCode) {
-  const [importedOrders, customer, item, shipToAddress, salesHeader, salesInvoiceHeader] = await Promise.all([
+  const [
+    importedOrders,
+    customer,
+    item,
+    shipToAddress,
+    salespersonPurchaser,
+    contact,
+    salesHeader,
+    salesInvoiceHeader
+  ] = await Promise.all([
     resolveTable('Imported Orders', config.tables.importedOrders, companyCode),
     resolveTable('Customer', config.tables.customer, companyCode),
     resolveTable('Item', config.tables.item, companyCode),
     resolveTable('Ship-to Address', config.tables.shipToAddress, companyCode),
+    resolveFirstTable(['Salesperson/Purchaser', 'Salesperson_Purchaser'], config.tables.salespersonPurchaser, companyCode),
+    resolveTable('Contact', config.tables.contact, companyCode),
     resolveTable('Sales Header', config.tables.salesHeader, companyCode),
     resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode)
   ]);
 
-  return { importedOrders, customer, item, shipToAddress, salesHeader, salesInvoiceHeader };
+  return {
+    importedOrders,
+    customer,
+    item,
+    shipToAddress,
+    salespersonPurchaser,
+    contact,
+    salesHeader,
+    salesInvoiceHeader
+  };
 }
 
 async function getAllCompanyTables() {

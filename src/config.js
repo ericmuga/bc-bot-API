@@ -63,6 +63,8 @@ const config = {
     customer: process.env.SQL_TABLE_CUSTOMER || '',
     item: process.env.SQL_TABLE_ITEM || '',
     shipToAddress: process.env.SQL_TABLE_SHIP_TO_ADDRESS || '',
+    salespersonPurchaser: process.env.SQL_TABLE_SALESPERSON_PURCHASER || '',
+    contact: process.env.SQL_TABLE_CONTACT || '',
     salesHeader: process.env.SQL_TABLE_SALES_HEADER || '',
     salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || ''
   },

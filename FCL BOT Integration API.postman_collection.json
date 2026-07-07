@@ -257,7 +257,7 @@
                 }
               ]
             },
-            "description": "Reads BC Customer records filtered by CUSTOMERS_WHERE, defaulting to Web Customer = true and Blocked = false. Response includes nested shipTo entries with code and name."
+            "description": "Reads web portal customers for the selected company. Response includes customer number/name and nested shipTo entries with code and name."
           },
           "event": [
             {
@@ -271,6 +271,59 @@
                   "  pm.expect(json.data).to.be.an('array');",
                   "  if (json.data.length) {",
                   "    pm.expect(json.data[0].shipTo).to.be.an('array');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Salespeople",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "search",
+                  "value": "{{salespersonCode}}",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Reads salespeople for the selected company with nested contact names and phone numbers."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Salespeople response has nested contacts array', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  if (json.data.length) {",
+                  "    pm.expect(json.data[0].contacts).to.be.an('array');",
                   "  }",
                   "});"
                 ]
@@ -308,7 +361,7 @@
                 }
               ]
             },
-            "description": "Reads BC Item records filtered by ITEMS_WHERE, defaulting to PDA Item = true and Blocked = false."
+            "description": "Reads PDA items for the selected company."
           },
           "response": []
         }
