@@ -312,7 +312,7 @@
       "name": "Imported Orders",
       "item": [
         {
-          "name": "Create or Update Imported Order",
+          "name": "Create Imported Order",
           "request": {
             "method": "POST",
             "header": [
@@ -335,7 +335,7 @@
                 "imported-orders"
               ]
             },
-            "description": "Stages a BOT order into BC Imported Orders. Existing lines with the same External Document No. and Line No. are updated."
+            "description": "Stages a BOT order into BC Imported Orders. Before writing, the API checks Imported Orders, Sales Header, and Sales Invoice Header for the same External Document No.; if not found, it waits briefly and checks again to avoid duplicates during BC posting handover."
           },
           "event": [
             {

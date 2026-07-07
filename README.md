@@ -317,6 +317,41 @@ Error = 4
 }
 ```
 
+Before `POST /api/imported-orders` writes anything, the API checks the selected company for the same `externalDocumentNo` in:
+
+```text
+Imported Orders
+Sales Header
+Sales Invoice Header
+```
+
+If the external document number already exists, the API returns `409 Conflict` and does not import. If it is not found, the API waits for `IMPORT_DUPLICATE_RECHECK_DELAY_MS` and checks again before inserting. This protects the BC posting handover window where a document may briefly leave `Sales Header` before appearing in `Sales Invoice Header`.
+
+Configure the wait in `.env`:
+
+```env
+IMPORT_DUPLICATE_RECHECK_DELAY_MS=5000
+```
+
+Example conflict response:
+
+```json
+{
+  "error": "External document number already exists in Business Central.",
+  "details": {
+    "company": "FCL",
+    "externalDocumentNo": "BOT-100045",
+    "matches": [
+      {
+        "sourceTable": "Sales Header",
+        "count": 1,
+        "documents": ["SO-100045"]
+      }
+    ]
+  }
+}
+```
+
 ## SQL Table Resolution
 
 The service auto-discovers Business Central SQL tables by company/name patterns such as:

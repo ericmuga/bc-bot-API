@@ -73,7 +73,8 @@ const config = {
   defaults: {
     importedOrderStatus: intFromEnv(process.env.DEFAULT_IMPORTED_ORDER_STATUS, 0),
     limit: intFromEnv(process.env.DEFAULT_LIMIT, 100),
-    maxLimit: intFromEnv(process.env.MAX_LIMIT, 1000)
+    maxLimit: intFromEnv(process.env.MAX_LIMIT, 1000),
+    importDuplicateRecheckDelayMs: intFromEnv(process.env.IMPORT_DUPLICATE_RECHECK_DELAY_MS, 5000)
   }
 };
 

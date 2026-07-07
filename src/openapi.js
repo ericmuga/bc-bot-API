@@ -105,6 +105,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             properties: {
               importedOrderStatus: { type: 'integer', example: 0 },
               importedOrderStatusName: { type: 'string', example: 'Order' },
+              importDuplicateRecheckDelayMs: { type: 'integer', example: 5000 },
               limit: { type: 'integer', example: 100 },
               maxLimit: { type: 'integer', example: 1000 }
             }
@@ -361,8 +362,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         }
       },
       post: {
-        summary: 'Create or update an imported order',
-        description: 'Writes line-based order data into Business Central Imported Orders. Existing lines with the same External Document No. and Line No. are updated.',
+        summary: 'Create an imported order',
+        description: 'Writes line-based order data into Business Central Imported Orders. Before writing, the API checks Imported Orders, Sales Header, and Sales Invoice Header for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
         requestBody: {
           required: true,
           content: {
@@ -373,7 +374,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         },
         responses: {
           201: { description: 'Imported order staged successfully' },
-          400: { description: 'Invalid request' }
+          400: { description: 'Invalid request' },
+          409: { description: 'External document number already exists in Imported Orders, Sales Header, or Sales Invoice Header' }
         }
       }
     },

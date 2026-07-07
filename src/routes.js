@@ -121,6 +121,12 @@ function importedOrderStatusValue(value) {
   throw error;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function salesHeaderDocumentTypeName(documentType) {
   const documentTypes = ['Quote', 'Order', 'Invoice', 'Credit Memo', 'Blanket Order', 'Return Order'];
   return documentTypes[Number(documentType)] || 'Unknown';
@@ -263,6 +269,71 @@ async function getImportedOrderLinesByExternalDocumentNo(pool, tables, externalD
   }));
 }
 
+async function findExistingExternalDocument(pool, tables, externalDocumentNo) {
+  const [importedLines, salesDocuments] = await Promise.all([
+    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo),
+    getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo)
+  ]);
+  const matches = [];
+
+  if (importedLines.length) {
+    matches.push({
+      sourceTable: 'Imported Orders',
+      count: importedLines.length
+    });
+  }
+
+  if (salesDocuments.salesHeaders.length) {
+    matches.push({
+      sourceTable: 'Sales Header',
+      count: salesDocuments.salesHeaders.length,
+      documents: salesDocuments.salesHeaders.map((document) => document.documentNo)
+    });
+  }
+
+  if (salesDocuments.postedInvoices.length) {
+    matches.push({
+      sourceTable: 'Sales Invoice Header',
+      count: salesDocuments.postedInvoices.length,
+      documents: salesDocuments.postedInvoices.map((document) => document.invoiceNo)
+    });
+  }
+
+  return matches;
+}
+
+async function assertExternalDocumentCanBeImported(pool, tables, companyCode, externalDocumentNo) {
+  const beforeDelayMatches = await findExistingExternalDocument(pool, tables, externalDocumentNo);
+  if (beforeDelayMatches.length) {
+    const error = new Error('External document number already exists in Business Central.');
+    error.statusCode = 409;
+    error.details = {
+      company: companyCode,
+      externalDocumentNo,
+      matches: beforeDelayMatches
+    };
+    throw error;
+  }
+
+  const delayMs = config.defaults.importDuplicateRecheckDelayMs;
+  if (delayMs > 0) {
+    await delay(delayMs);
+  }
+
+  const afterDelayMatches = await findExistingExternalDocument(pool, tables, externalDocumentNo);
+  if (afterDelayMatches.length) {
+    const error = new Error('External document number appeared in Business Central during import safety recheck.');
+    error.statusCode = 409;
+    error.details = {
+      company: companyCode,
+      externalDocumentNo,
+      delayMs,
+      matches: afterDelayMatches
+    };
+    throw error;
+  }
+}
+
 async function sendExternalDocumentStatus(req, res, companyCode) {
   const pool = await getPool();
   const company = getCompanyConfig(companyCode);
@@ -320,11 +391,12 @@ router.get('/status', asyncHandler(async (req, res) => {
       code,
       prefix: `${config.companies.prefixes[code]}$`
     })),
-    defaults: {
+  defaults: {
       importedOrderStatus: config.defaults.importedOrderStatus,
       importedOrderStatusName: importedOrderStatusName(config.defaults.importedOrderStatus),
       limit: config.defaults.limit,
-      maxLimit: config.defaults.maxLimit
+      maxLimit: config.defaults.maxLimit,
+      importDuplicateRecheckDelayMs: config.defaults.importDuplicateRecheckDelayMs
     }
   });
 }));
@@ -609,7 +681,9 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
   }));
 
   const pool = await getPool();
-  const { importedOrders } = await getTables(company.code);
+  const tables = await getTables(company.code);
+  await assertExternalDocumentCanBeImported(pool, tables, company.code, externalDocumentNo);
+  const { importedOrders } = tables;
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
 

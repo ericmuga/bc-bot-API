@@ -38,9 +38,15 @@ function errorHandler(err, req, res, next) {
   }
 
   const status = err.statusCode || err.status || 500;
-  return res.status(status).json({
+  const response = {
     error: redactConfiguredSecrets(err.message)
-  });
+  };
+
+  if (err.details) {
+    response.details = err.details;
+  }
+
+  return res.status(status).json(response);
 }
 
 module.exports = {
