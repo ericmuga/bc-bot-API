@@ -184,23 +184,18 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/status/{{externalDocumentNo}}?company={{company}}",
+              "raw": "{{baseUrl}}/api/{{company}}/status/{{externalDocumentNo}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
+                "{{company}}",
                 "status",
                 "{{externalDocumentNo}}"
-              ],
-              "query": [
-                {
-                  "key": "company",
-                  "value": "{{company}}"
-                }
               ]
             },
-            "description": "Primary BOT status check. Accepts the external document number and returns current BC status from Sales Invoice Header, Sales Header, or Imported Orders."
+            "description": "Primary BOT status check. Accepts the company flag and external document number, then returns current BC status from Sales Invoice Header, Sales Header, or Imported Orders."
           },
           "event": [
             {

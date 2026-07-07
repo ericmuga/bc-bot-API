@@ -63,13 +63,13 @@ FLM -> FLM1$
 RMK -> RMK$
 ```
 
-For `GET` endpoints, pass the flag as a query parameter:
+For regular `GET` endpoints, pass the flag as a query parameter. For the primary order status endpoint, the company is part of the path:
 
 ```http
 GET /api/customers?company=FCL
 GET /api/items?company=RMK
 GET /api/imported-orders?company=CM&externalDocumentNo=BOT-100045
-GET /api/status/BOT-100045?company=FLM
+GET /api/FLM/status/BOT-100045
 ```
 
 For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag is also written to the Imported Orders `Company` field.
@@ -79,6 +79,7 @@ For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag 
 ```text
 GET  /api/health
 GET  /api/status
+GET  /api/:company/status/:externalDocumentNo
 GET  /api/status/:externalDocumentNo
 GET  /api/customers
 GET  /api/items
@@ -144,10 +145,18 @@ GET  /api/imported-orders/:externalDocumentNo/status
 }
 ```
 
-`GET /api/status/:externalDocumentNo` is the primary BOT document status check. It accepts the BOT external document number and returns the current BC status:
+`GET /api/:company/status/:externalDocumentNo` is the primary BOT document status check. It accepts the company flag and BOT external document number and returns the current BC status:
+
+```http
+GET /api/FCL/status/BOT-100045
+GET /api/CM/status/BOT-100045
+GET /api/FLM/status/BOT-100045
+GET /api/RMK/status/BOT-100045
+```
 
 ```json
 {
+  "company": "FCL",
   "externalDocumentNo": "BOT-100045",
   "orderStatus": "Released",
   "bcStage": "Sales Header",
@@ -160,6 +169,12 @@ GET  /api/imported-orders/:externalDocumentNo/status
     "Post": 2
   }
 }
+```
+
+The older query-form route is still supported for compatibility:
+
+```http
+GET /api/status/BOT-100045?company=FCL
 ```
 
 Lookup priority:

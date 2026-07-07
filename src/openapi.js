@@ -235,7 +235,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/status/{externalDocumentNo}': {
       get: {
         summary: 'Get BC order status by external document number',
-        description: 'Accepts the BOT external document number and returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
+        description: 'Compatibility route. Prefer /api/{company}/status/{externalDocumentNo}. Accepts the BOT external document number and returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
         parameters: [
           {
             name: 'externalDocumentNo',
@@ -248,6 +248,38 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         responses: {
           200: {
             description: 'BC order status for the external document number',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/BcOrderStatus' }
+              }
+            }
+          },
+          404: { description: 'Order not found' }
+        }
+      }
+    },
+    '/api/{company}/status/{externalDocumentNo}': {
+      get: {
+        summary: 'Get company-prefixed BC order status',
+        description: 'Accepts the company flag and BOT external document number, then returns the current BC order status from that company. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
+        parameters: [
+          {
+            name: 'company',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'] },
+            description: 'Company flag used to select the BC SQL company table prefix.'
+          },
+          {
+            name: 'externalDocumentNo',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          200: {
+            description: 'BC order status for the company and external document number',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/BcOrderStatus' }

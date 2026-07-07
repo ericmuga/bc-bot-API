@@ -38,7 +38,7 @@ function optionalString(value) {
 }
 
 function companyFromRequest(req) {
-  return optionalString(req.query.company || req.body?.company || config.companies.defaultCode).toUpperCase();
+  return optionalString(req.params.company || req.query.company || req.body?.company || config.companies.defaultCode).toUpperCase();
 }
 
 function maskedValue(value) {
@@ -263,6 +263,24 @@ async function getImportedOrderLinesByExternalDocumentNo(pool, tables, externalD
   }));
 }
 
+async function sendExternalDocumentStatus(req, res, companyCode) {
+  const pool = await getPool();
+  const company = getCompanyConfig(companyCode);
+  const tables = await getTables(company.code);
+  const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
+  const [salesDocuments, importedLines] = await Promise.all([
+    getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo),
+    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
+  ]);
+  const status = buildBcOrderStatus(externalDocumentNo, importedLines, salesDocuments);
+
+  if (!status) {
+    return res.status(404).json({ error: 'Order not found in Imported Orders, Sales Header, or Sales Invoice Header.' });
+  }
+
+  return res.json({ company: company.code, ...status });
+}
+
 function addImportedOrderFilter(filters, request, query, queryName, sqlType, columnName, parameterName = queryName) {
   const value = optionalString(query[queryName]);
   if (!value) {
@@ -312,21 +330,13 @@ router.get('/status', asyncHandler(async (req, res) => {
 }));
 
 router.get('/status/:externalDocumentNo', asyncHandler(async (req, res) => {
-  const pool = await getPool();
   const companyCode = companyFromRequest(req);
-  const tables = await getTables(companyCode);
-  const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
-  const [salesDocuments, importedLines] = await Promise.all([
-    getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo),
-    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
-  ]);
-  const status = buildBcOrderStatus(externalDocumentNo, importedLines, salesDocuments);
+  return sendExternalDocumentStatus(req, res, companyCode);
+}));
 
-  if (!status) {
-    return res.status(404).json({ error: 'Order not found in Imported Orders, Sales Header, or Sales Invoice Header.' });
-  }
-
-  return res.json({ company: getCompanyConfig(companyCode).code, ...status });
+router.get('/:company/status/:externalDocumentNo', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  return sendExternalDocumentStatus(req, res, companyCode);
 }));
 
 router.get('/customers', asyncHandler(async (req, res) => {
