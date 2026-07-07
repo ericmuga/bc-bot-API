@@ -385,7 +385,7 @@ Error = 4
   "shipToName": "Nairobi Outlet",
   "customerSpecification": "No onions",
   "company": "FCL",
-  "pdaOrder": true,
+  "pdaOrder": false,
   "externalOrderUrl": "https://bot.example.com/orders/BOT-100045",
   "lines": [
     {

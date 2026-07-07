@@ -42,7 +42,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             type: 'boolean',
             nullable: true,
             default: false,
-            example: true,
+            example: false,
             description: 'Order-only flag. When documentType=order, this is staged on Imported Orders and mapped to Sales Header PDA Order by the BC import job.'
           },
           location: { type: 'string', nullable: true, example: '3535', description: 'Invoice default location; line.location can override it.' },
@@ -267,7 +267,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 expectedLineCount: { type: 'integer', example: 2 },
                 error: { type: 'boolean', nullable: true, example: false },
                 errorMessage: { type: 'string', nullable: true, example: '' },
-                pdaOrder: { type: 'boolean', nullable: true, example: true },
+                pdaOrder: { type: 'boolean', nullable: true, example: false },
                 productSpecification: { type: 'string', nullable: true, example: 'Vacuum packed' }
               }
             }
