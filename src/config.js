@@ -60,6 +60,7 @@ const config = {
   },
   tables: {
     importedOrders: process.env.SQL_TABLE_IMPORTED_ORDERS || '',
+    importedSalesAL: process.env.SQL_TABLE_IMPORTED_SALES_AL || '',
     customer: process.env.SQL_TABLE_CUSTOMER || '',
     item: process.env.SQL_TABLE_ITEM || '',
     shipToAddress: process.env.SQL_TABLE_SHIP_TO_ADDRESS || '',

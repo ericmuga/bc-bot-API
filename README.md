@@ -280,7 +280,7 @@ Important BC lifecycle note:
 }
 ```
 
-## Imported Order Payload
+## Imported Sales Document Payload
 
 `GET /api/imported-orders` lists staged imported order lines. Supported query params:
 
@@ -322,6 +322,7 @@ Error = 4
 
 ```json
 {
+  "documentType": "order",
   "externalDocumentNo": "BOT-100045",
   "sellToCustomerNo": "90000",
   "shipmentDate": "2026-06-22",
@@ -343,10 +344,44 @@ Error = 4
 }
 ```
 
+For invoice staging into `Imported SalesAL`, use `documentType = invoice`. Invoice lines require `unitPrice`; `lineAmount` defaults to `quantity * unitPrice`; header totals default from the lines when omitted.
+
+```json
+{
+  "documentType": "invoice",
+  "company": "FCL",
+  "externalDocumentNo": "BOT-INV-100045",
+  "sellToCustomerNo": "90000",
+  "shipmentDate": "2026-06-22",
+  "salespersonCode": "019",
+  "shipToCode": "NAIROBI",
+  "shipToName": "Nairobi Outlet",
+  "location": "3535",
+  "totalHeaderAmount": 1972,
+  "totalHeaderQty": 17,
+  "billTo": "90000",
+  "cuInvoiceNo": "CU-100045",
+  "cuNo": "ETR-01",
+  "signingTime": "2026-06-22T10:15:00",
+  "lines": [
+    {
+      "lineNo": 10000,
+      "itemNo": "PDA001",
+      "quantity": 12,
+      "unitOfMeasure": "KG",
+      "unitPrice": 116,
+      "lineAmount": 1392,
+      "location": "3535"
+    }
+  ]
+}
+```
+
 Before `POST /api/imported-orders` writes anything, the API checks the selected company for the same `externalDocumentNo` in:
 
 ```text
 Imported Orders
+Imported SalesAL
 Sales Header
 Sales Invoice Header
 ```

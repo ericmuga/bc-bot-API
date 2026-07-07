@@ -6,7 +6,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
   info: {
     title: 'FCL BOT Integration API',
     version: '1.0.0',
-    description: 'Staging API for BOT integrations. Orders are written to Business Central Imported Orders; customers and items are read-only.'
+    description: 'Staging API for BOT integrations. Orders are written to Business Central Imported Orders; invoices are written to Imported SalesAL; master data endpoints are read-only.'
   },
   servers: [
     { url: baseUrl, description: 'Current server' }
@@ -24,6 +24,13 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         type: 'object',
         required: ['externalDocumentNo', 'sellToCustomerNo', 'shipmentDate', 'salespersonCode', 'lines'],
         properties: {
+          documentType: {
+            type: 'string',
+            enum: ['order', 'invoice'],
+            default: 'order',
+            description: 'order stages into Imported Orders; invoice stages into Imported SalesAL for the Import SalesAL posting process.',
+            example: 'order'
+          },
           externalDocumentNo: { type: 'string', example: 'BOT-100045' },
           sellToCustomerNo: { type: 'string', example: '90000' },
           shipmentDate: { type: 'string', format: 'date', example: '2026-06-22' },
@@ -31,6 +38,13 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           shipToCode: { type: 'string', nullable: true, example: 'NAIROBI' },
           shipToName: { type: 'string', nullable: true, example: 'Nairobi Outlet' },
           customerSpecification: { type: 'string', nullable: true, example: 'No onions' },
+          location: { type: 'string', nullable: true, example: '3535', description: 'Invoice default location; line.location can override it.' },
+          totalHeaderAmount: { type: 'number', nullable: true, example: 1972, description: 'Invoice header total amount used by Import SalesAL posting validation.' },
+          totalHeaderQty: { type: 'number', nullable: true, example: 17, description: 'Invoice header total quantity; defaults to the sum of line quantities.' },
+          billTo: { type: 'string', nullable: true, example: '90000' },
+          cuInvoiceNo: { type: 'string', nullable: true, example: 'CU-100045' },
+          cuNo: { type: 'string', nullable: true, example: 'ETR-01' },
+          signingTime: { type: 'string', nullable: true, example: '2026-06-22T10:15:00' },
           company: {
             type: 'string',
             nullable: true,
@@ -55,6 +69,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 itemNo: { type: 'string', example: 'PDA001' },
                 quantity: { type: 'number', example: 12 },
                 unitOfMeasure: { type: 'string', example: 'KG' },
+                location: { type: 'string', nullable: true, example: '3535' },
+                unitPrice: { type: 'number', nullable: true, example: 116, description: 'Required for invoice payloads.' },
+                lineAmount: { type: 'number', nullable: true, example: 1392, description: 'Invoice line amount; defaults to quantity * unitPrice.' },
                 productSpecification: { type: 'string', nullable: true, example: 'Vacuum packed' }
               }
             }
@@ -416,8 +433,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         }
       },
       post: {
-        summary: 'Create an imported order',
-        description: 'Writes line-based order data into Business Central Imported Orders. Before writing, the API checks Imported Orders, Sales Header, and Sales Invoice Header for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
+        summary: 'Create an imported sales document',
+        description: 'Writes line-based sales data into Business Central staging. documentType=order writes to Imported Orders. documentType=invoice writes to Imported SalesAL for the Import SalesAL posting process. Before writing, the API checks staging, Sales Header, and Sales Invoice Header for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
         requestBody: {
           required: true,
           content: {

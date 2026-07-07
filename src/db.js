@@ -123,6 +123,7 @@ async function resolveFirstTable(logicalNames, override, companyCode) {
 async function getTables(companyCode) {
   const [
     importedOrders,
+    importedSalesAL,
     customer,
     item,
     shipToAddress,
@@ -132,6 +133,7 @@ async function getTables(companyCode) {
     salesInvoiceHeader
   ] = await Promise.all([
     resolveTable('Imported Orders', config.tables.importedOrders, companyCode),
+    resolveTable('Imported SalesAL', config.tables.importedSalesAL, companyCode),
     resolveTable('Customer', config.tables.customer, companyCode),
     resolveTable('Item', config.tables.item, companyCode),
     resolveTable('Ship-to Address', config.tables.shipToAddress, companyCode),
@@ -143,6 +145,7 @@ async function getTables(companyCode) {
 
   return {
     importedOrders,
+    importedSalesAL,
     customer,
     item,
     shipToAddress,

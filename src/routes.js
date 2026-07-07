@@ -77,6 +77,15 @@ function requiredNumber(value, name) {
   return parsed;
 }
 
+function optionalNumber(value, fallback = 0) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function toBcDate(value, name) {
   const text = requireString(value, name);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
@@ -86,6 +95,21 @@ function toBcDate(value, name) {
   }
 
   return text;
+}
+
+function documentTypeFromValue(value) {
+  const normalized = optionalString(value || 'order').toLowerCase();
+  if (['order', 'orders'].includes(normalized)) {
+    return 'order';
+  }
+
+  if (['invoice', 'invoices'].includes(normalized)) {
+    return 'invoice';
+  }
+
+  const error = new Error('documentType must be either order or invoice.');
+  error.statusCode = 400;
+  throw error;
 }
 
 function importedOrderStatusName(status) {
@@ -219,7 +243,7 @@ function summarizeImportedOrderStatus(lines) {
   return { state: 'imported', counts };
 }
 
-function buildBcOrderStatus(externalDocumentNo, importedLines, salesDocuments) {
+function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLines, salesDocuments) {
   const importedSummary = summarizeImportedOrderStatus(importedLines);
 
   if (salesDocuments.postedInvoices.length) {
@@ -265,6 +289,26 @@ function buildBcOrderStatus(externalDocumentNo, importedLines, salesDocuments) {
       documentNo: externalDocumentNo,
       lineCount: importedLines.length,
       statusCounts: importedSummary.counts,
+      salesDocuments
+    };
+  }
+
+  if (importedSalesLines.length) {
+    const executedCount = importedSalesLines.filter((line) => line.executed).length;
+    const postedCount = importedSalesLines.filter((line) => line.posted).length;
+    return {
+      externalDocumentNo,
+      orderStatus: postedCount === importedSalesLines.length ? 'posted' : executedCount ? 'processing' : 'imported',
+      bcStage: 'Imported SalesAL',
+      sourceTable: 'Imported SalesAL',
+      documentNo: externalDocumentNo,
+      documentType: 'Invoice',
+      lineCount: importedSalesLines.length,
+      statusCounts: {
+        imported: importedSalesLines.length - executedCount,
+        executed: executedCount,
+        posted: postedCount
+      },
       salesDocuments
     };
   }
@@ -326,9 +370,32 @@ async function getImportedOrderLinesByExternalDocumentNo(pool, tables, externalD
   }));
 }
 
+async function getImportedSalesLinesByExternalDocumentNo(pool, tables, externalDocumentNo) {
+  const result = await pool.request()
+    .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
+    .query(`
+      SELECT
+        ${bracket('ExtDocNo')} AS externalDocumentNo,
+        ${bracket('LineNo')} AS lineNo,
+        ${bracket('ItemNo')} AS itemNo,
+        ${bracket('Qty')} AS quantity,
+        ${bracket('SUOM')} AS unitOfMeasure,
+        ${bracket('UnitPrice')} AS unitPrice,
+        ${bracket('LineAmount')} AS lineAmount,
+        ${bracket('Executed')} AS executed,
+        ${bracket('Posted')} AS posted
+      FROM ${tables.importedSalesAL}
+      WHERE ${bracket('ExtDocNo')} = @externalDocumentNo
+      ORDER BY ${bracket('LineNo')}
+    `);
+
+  return result.recordset;
+}
+
 async function findExistingExternalDocument(pool, tables, externalDocumentNo) {
-  const [importedLines, salesDocuments] = await Promise.all([
+  const [importedLines, importedSalesLines, salesDocuments] = await Promise.all([
     getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo),
+    getImportedSalesLinesByExternalDocumentNo(pool, tables, externalDocumentNo),
     getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo)
   ]);
   const matches = [];
@@ -337,6 +404,13 @@ async function findExistingExternalDocument(pool, tables, externalDocumentNo) {
     matches.push({
       sourceTable: 'Imported Orders',
       count: importedLines.length
+    });
+  }
+
+  if (importedSalesLines.length) {
+    matches.push({
+      sourceTable: 'Imported SalesAL',
+      count: importedSalesLines.length
     });
   }
 
@@ -396,11 +470,12 @@ async function sendExternalDocumentStatus(req, res, companyCode) {
   const company = getCompanyConfig(companyCode);
   const tables = await getTables(company.code);
   const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
-  const [salesDocuments, importedLines] = await Promise.all([
+  const [salesDocuments, importedLines, importedSalesLines] = await Promise.all([
     getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo),
-    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
+    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo),
+    getImportedSalesLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
   ]);
-  const status = buildBcOrderStatus(externalDocumentNo, importedLines, salesDocuments);
+  const status = buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLines, salesDocuments);
 
   if (!status) {
     return res.status(404).json({ error: 'Order not found in Imported Orders, Sales Header, or Sales Invoice Header.' });
@@ -756,11 +831,12 @@ router.get('/imported-orders/:externalDocumentNo/status', asyncHandler(async (re
   const companyCode = companyFromRequest(req);
   const tables = await getTables(companyCode);
   const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
-  const [salesDocuments, lines] = await Promise.all([
+  const [salesDocuments, lines, importedSalesLines] = await Promise.all([
     getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo),
-    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
+    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo),
+    getImportedSalesLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
   ]);
-  const status = buildBcOrderStatus(externalDocumentNo, lines, salesDocuments);
+  const status = buildBcOrderStatus(externalDocumentNo, lines, importedSalesLines, salesDocuments);
 
   if (!status) {
     return res.status(404).json({ error: 'Order not found in Imported Orders, Sales Header, or Sales Invoice Header.' });
@@ -770,9 +846,13 @@ router.get('/imported-orders/:externalDocumentNo/status', asyncHandler(async (re
     company: getCompanyConfig(companyCode).code,
     ...status,
     externalDocumentNo,
-    state: status.bcStage === 'Posted Sales Invoice' ? 'posted' : status.bcStage === 'Sales Header' ? 'salesOrder' : status.importedOrderState,
-    lineCount: lines.length,
-    lines
+    state: status.bcStage === 'Posted Sales Invoice'
+      ? 'posted'
+      : status.bcStage === 'Sales Header'
+        ? 'salesOrder'
+        : status.importedOrderState || status.orderStatus,
+    lineCount: lines.length || importedSalesLines.length,
+    lines: lines.length ? lines : importedSalesLines
   });
 }));
 
@@ -780,6 +860,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
   const body = req.body || {};
   const companyCode = companyFromRequest(req);
   const company = getCompanyConfig(companyCode);
+  const documentType = documentTypeFromValue(body.documentType);
   const externalDocumentNo = requireString(body.externalDocumentNo, 'externalDocumentNo');
   const sellToCustomerNo = requireString(body.sellToCustomerNo, 'sellToCustomerNo');
   const shipmentDate = toBcDate(body.shipmentDate, 'shipmentDate');
@@ -788,6 +869,11 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
   const shipToName = optionalString(body.shipToName);
   const customerSpecification = optionalString(body.customerSpecification);
   const externalOrderUrl = optionalString(body.externalOrderUrl);
+  const location = optionalString(body.location);
+  const billTo = optionalString(body.billTo);
+  const cuInvoiceNo = optionalString(body.cuInvoiceNo);
+  const cuNo = optionalString(body.cuNo);
+  const signingTime = optionalString(body.signingTime);
 
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     return res.status(400).json({ error: 'lines must contain at least one order line.' });
@@ -798,63 +884,115 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
     itemNo: requireString(line.itemNo, `lines[${index}].itemNo`),
     quantity: requiredNumber(line.quantity, `lines[${index}].quantity`),
     unitOfMeasure: requireString(line.unitOfMeasure, `lines[${index}].unitOfMeasure`),
-    productSpecification: optionalString(line.productSpecification ?? body.productSpecification)
+    productSpecification: optionalString(line.productSpecification ?? body.productSpecification),
+    location: optionalString(line.location || location),
+    unitPrice: documentType === 'invoice' ? requiredNumber(line.unitPrice, `lines[${index}].unitPrice`) : optionalNumber(line.unitPrice),
+    lineAmount: optionalNumber(line.lineAmount, optionalNumber(line.quantity) * optionalNumber(line.unitPrice))
   }));
+  const totalHeaderQty = optionalNumber(body.totalHeaderQty, lines.reduce((total, line) => total + line.quantity, 0));
+  const totalHeaderAmount = optionalNumber(body.totalHeaderAmount, lines.reduce((total, line) => total + line.lineAmount, 0));
 
   const pool = await getPool();
   const tables = await getTables(company.code);
   await assertExternalDocumentCanBeImported(pool, tables, company.code, externalDocumentNo);
-  const { importedOrders } = tables;
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
 
   try {
     for (const line of lines) {
-      const request = new sql.Request(transaction)
-        .input('sellToCustomerNo', sql.NVarChar, sellToCustomerNo)
-        .input('shipmentDate', sql.Date, shipmentDate)
-        .input('salespersonCode', sql.NVarChar, salespersonCode)
-        .input('shipToCode', sql.NVarChar, shipToCode)
-        .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
-        .input('itemNo', sql.NVarChar, line.itemNo)
-        .input('quantity', sql.Decimal(38, 20), line.quantity)
-        .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
-        .input('shipToName', sql.NVarChar, shipToName)
-        .input('lineNo', sql.Int, line.lineNo)
-        .input('status', sql.Int, config.defaults.importedOrderStatus)
-        .input('customerSpecification', sql.NVarChar, customerSpecification)
-        .input('productSpecification', sql.NVarChar, line.productSpecification)
-        .input('company', sql.NVarChar, company.code)
-        .input('externalOrderUrl', sql.NVarChar, externalOrderUrl);
+      if (documentType === 'invoice') {
+        const request = new sql.Request(transaction)
+          .input('sellToCustomerNo', sql.NVarChar, sellToCustomerNo)
+          .input('shipmentDate', sql.Date, shipmentDate)
+          .input('salespersonCode', sql.NVarChar, salespersonCode)
+          .input('shipToCode', sql.NVarChar, shipToCode)
+          .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
+          .input('itemNo', sql.NVarChar, line.itemNo)
+          .input('quantity', sql.Decimal(38, 20), line.quantity)
+          .input('location', sql.NVarChar, line.location)
+          .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
+          .input('unitPrice', sql.Decimal(38, 20), line.unitPrice)
+          .input('shipToName', sql.NVarChar, shipToName)
+          .input('totalHeaderAmount', sql.Decimal(38, 20), totalHeaderAmount)
+          .input('lineAmount', sql.Decimal(38, 20), line.lineAmount)
+          .input('totalHeaderQty', sql.Decimal(38, 20), totalHeaderQty)
+          .input('lineNo', sql.Int, line.lineNo)
+          .input('type', sql.Int, 2)
+          .input('billTo', sql.NVarChar, billTo)
+          .input('cuInvoiceNo', sql.NVarChar, cuInvoiceNo)
+          .input('cuNo', sql.NVarChar, cuNo)
+          .input('signingTime', sql.NVarChar, signingTime);
 
-      await request.query(`
-        IF EXISTS (
-          SELECT 1 FROM ${importedOrders}
-          WHERE ${bracket('External Document No_')} = @externalDocumentNo
-            AND ${bracket('Line No_')} = @lineNo
-        )
-        BEGIN
-          UPDATE ${importedOrders}
-          SET
-            ${bracket('Sell-to Customer No_')} = @sellToCustomerNo,
-            ${bracket('Shipment Date')} = @shipmentDate,
-            ${bracket('Salesperson Code')} = @salespersonCode,
-            ${bracket('Ship-to Code')} = @shipToCode,
-            ${bracket('Item No_')} = @itemNo,
-            ${bracket('Quantity')} = @quantity,
-            ${bracket('Unit of Measure')} = @unitOfMeasure,
-            ${bracket('Ship-to Name')} = @shipToName,
-            ${bracket('Status')} = @status,
-            ${bracket('Customer Specification')} = @customerSpecification,
-            ${bracket('Product Specification')} = @productSpecification,
-            ${bracket('Company')} = @company,
-            ${bracket('External Order URL')} = @externalOrderUrl
-          WHERE ${bracket('External Document No_')} = @externalDocumentNo
-            AND ${bracket('Line No_')} = @lineNo
-        END
-        ELSE
-        BEGIN
-          INSERT INTO ${importedOrders} (
+        await request.query(`
+          INSERT INTO ${tables.importedSalesAL} (
+            ${bracket('CustNO')},
+            ${bracket('Date')},
+            ${bracket('SPCode')},
+            ${bracket('ShiptoCOde')},
+            ${bracket('ExtDocNo')},
+            ${bracket('ItemNo')},
+            ${bracket('Qty')},
+            ${bracket('Location')},
+            ${bracket('SUOM')},
+            ${bracket('UnitPrice')},
+            ${bracket('ShiptoName')},
+            ${bracket('TotalHeaderAmount')},
+            ${bracket('LineAmount')},
+            ${bracket('TotalHeaderQty')},
+            ${bracket('LineNo')},
+            ${bracket('Type')},
+            ${bracket('Executed')},
+            ${bracket('Posted')},
+            ${bracket('BillTo')},
+            ${bracket('CUInvoiceNo')},
+            ${bracket('CUNo')},
+            ${bracket('SigningTime')}
+          )
+          VALUES (
+            @sellToCustomerNo,
+            @shipmentDate,
+            @salespersonCode,
+            @shipToCode,
+            @externalDocumentNo,
+            @itemNo,
+            @quantity,
+            @location,
+            @unitOfMeasure,
+            @unitPrice,
+            @shipToName,
+            @totalHeaderAmount,
+            @lineAmount,
+            @totalHeaderQty,
+            @lineNo,
+            @type,
+            0,
+            0,
+            @billTo,
+            @cuInvoiceNo,
+            @cuNo,
+            @signingTime
+          )
+        `);
+      } else {
+        const request = new sql.Request(transaction)
+          .input('sellToCustomerNo', sql.NVarChar, sellToCustomerNo)
+          .input('shipmentDate', sql.Date, shipmentDate)
+          .input('salespersonCode', sql.NVarChar, salespersonCode)
+          .input('shipToCode', sql.NVarChar, shipToCode)
+          .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
+          .input('itemNo', sql.NVarChar, line.itemNo)
+          .input('quantity', sql.Decimal(38, 20), line.quantity)
+          .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
+          .input('shipToName', sql.NVarChar, shipToName)
+          .input('lineNo', sql.Int, line.lineNo)
+          .input('status', sql.Int, config.defaults.importedOrderStatus)
+          .input('customerSpecification', sql.NVarChar, customerSpecification)
+          .input('productSpecification', sql.NVarChar, line.productSpecification)
+          .input('company', sql.NVarChar, company.code)
+          .input('externalOrderUrl', sql.NVarChar, externalOrderUrl);
+
+        await request.query(`
+          INSERT INTO ${tables.importedOrders} (
             ${bracket('Sell-to Customer No_')},
             ${bracket('Shipment Date')},
             ${bracket('Salesperson Code')},
@@ -888,13 +1026,14 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @externalOrderUrl,
             @productSpecification
           )
-        END
-      `);
+        `);
+      }
     }
 
     await transaction.commit();
     return res.status(201).json({
       company: company.code,
+      documentType,
       externalDocumentNo,
       lineCount: lines.length,
       status: 'imported'
