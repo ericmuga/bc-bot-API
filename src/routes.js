@@ -429,7 +429,6 @@ router.get('/customers', asyncHandler(async (req, res) => {
   const result = await request.query(`
     WITH FilteredCustomers AS (
       SELECT TOP (@limit)
-        ${bracket('SystemId')} AS id,
         ${bracket('No_')} AS customerNo,
         ${bracket('Name')} AS name,
         ${bracket('Customer Price Group')} AS customerPriceGroup,
@@ -463,7 +462,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
     let customerRow = byCustomerNo.get(row.customerNo);
     if (!customerRow) {
       customerRow = {
-        id: row.id,
+        id: row.customerNo,
         customerNo: row.customerNo,
         name: row.name,
         customerPriceGroup: row.customerPriceGroup,
@@ -504,7 +503,7 @@ router.get('/items', asyncHandler(async (req, res) => {
 
   const result = await request.query(`
     SELECT TOP (@limit)
-      ${bracket('SystemId')} AS id,
+      ${bracket('No_')} AS id,
       ${bracket('No_')} AS itemNo,
       ${bracket('Description')} AS description,
       ${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
