@@ -89,6 +89,7 @@ GET  /api/imported-orders
 POST /api/imported-orders
 GET  /api/imported-orders/:externalDocumentNo
 GET  /api/imported-orders/:externalDocumentNo/status
+GET  /api/imported-orders/:externalDocumentNo/errors
 ```
 
 ## Status Checks
@@ -199,9 +200,11 @@ GET /api/imported-orders/BOT-100045/status?company=FCL
   "externalDocumentNo": "BOT-100045",
   "state": "imported",
   "lineCount": 2,
+  "expectedLineCount": 2,
   "statusCounts": {
     "Order": 2
   },
+  "errors": [],
   "salesDocuments": {
     "salesHeaders": [],
     "postedInvoices": []
@@ -213,6 +216,8 @@ GET /api/imported-orders/BOT-100045/status?company=FCL
       "quantity": 12,
       "status": 0,
       "statusName": "Order",
+      "expectedLineCount": 2,
+      "errorMessage": "",
       "productSpecification": "Vacuum packed"
     }
   ]
@@ -232,9 +237,36 @@ Imported order status mapping:
 Important BC lifecycle note:
 
 - `Imported Orders.Status = Post` means the imported line has been moved into a live Sales Order.
+- The API writes `Expected Line Count` to each staged line. BC processing waits until the number of staged lines for the external document matches that expected count.
+- Incomplete payloads remain in staging with a waiting message. Hard failures such as missing or blocked customer/item/salesperson are marked as errors on the staged lines with an error message.
 - Once the Sales Order is posted, it leaves `Sales Header`.
 - The API only returns `state = posted` when it finds a matching record in `Sales Invoice Header` by `External Document No.`.
 - If a matching live Sales Order exists but no posted invoice exists yet, the API returns `state = salesOrder`.
+
+`GET /api/imported-orders/:externalDocumentNo/errors?company=FCL` returns hard processing errors stamped by BC on the staged lines. This covers both order staging (`Imported Orders`) and invoice staging (`Imported SalesAL`):
+
+```http
+GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
+```
+
+```json
+{
+  "company": "FCL",
+  "externalDocumentNo": "BOT-INV-100045",
+  "lineCount": 2,
+  "expectedLineCount": 2,
+  "errorCount": 1,
+  "errors": [
+    {
+      "sourceTable": "Imported SalesAL",
+      "externalDocumentNo": "BOT-INV-100045",
+      "lineNo": 10000,
+      "itemNo": "PDA001",
+      "errorMessage": "Item PDA001 was not found or is blocked."
+    }
+  ]
+}
+```
 
 ## Customer Payload
 
@@ -345,6 +377,7 @@ Error = 4
 ```
 
 For invoice staging into `Imported SalesAL`, use `documentType = invoice`. Invoice lines require `unitPrice`; `lineAmount` defaults to `quantity * unitPrice`; header totals default from the lines when omitted.
+The API automatically stamps `Expected Line Count` on every staged line from `lines.length`; the BOT does not need to send this value separately.
 
 ```json
 {

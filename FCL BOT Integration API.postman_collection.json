@@ -215,7 +215,7 @@
                   "  pm.expect(json.documentType).to.eql('order');",
                   "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
                   "  pm.expect(json.orderStatus).to.be.a('string');",
-                  "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Sales Header', 'Posted Sales Invoice']);",
+                  "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Imported SalesAL', 'Sales Header', 'Posted Sales Invoice']);",
                   "  pm.expect(json.sourceTable).to.be.a('string');",
                   "});"
                 ]
@@ -627,6 +627,50 @@
                   "  pm.expect(json.statusCounts).to.be.an('object');",
                   "  pm.expect(json.salesDocuments).to.be.an('object');",
                   "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Imported Document Errors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders/{{externalDocumentNo}}/errors?company={{company}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders",
+                "{{externalDocumentNo}}",
+                "errors"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
+              ]
+            },
+            "description": "Returns hard BC processing errors stamped on Imported Orders or Imported SalesAL lines for the selected external document number."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported document errors response is shaped', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json.errorCount).to.be.a('number');",
+                  "  pm.expect(json.errors).to.be.an('array');",
                   "});"
                 ]
               }

@@ -158,7 +158,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           },
           bcStage: {
             type: 'string',
-            enum: ['Imported Orders', 'Sales Header', 'Posted Sales Invoice'],
+            enum: ['Imported Orders', 'Imported SalesAL', 'Sales Header', 'Posted Sales Invoice'],
             example: 'Sales Header'
           },
           sourceTable: { type: 'string', example: 'Sales Header' },
@@ -189,6 +189,21 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             example: 'salesOrder'
           },
           lineCount: { type: 'integer', example: 2 },
+          expectedLineCount: { type: 'integer', example: 2 },
+          errorCount: { type: 'integer', example: 0 },
+          errors: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                sourceTable: { type: 'string', example: 'Imported SalesAL' },
+                externalDocumentNo: { type: 'string', example: 'BOT-INV-100045' },
+                lineNo: { type: 'integer', example: 10000 },
+                itemNo: { type: 'string', example: 'PDA001' },
+                errorMessage: { type: 'string', example: 'Item PDA001 was not found or is blocked.' }
+              }
+            }
+          },
           statusCounts: {
             type: 'object',
             additionalProperties: { type: 'integer' },
@@ -236,6 +251,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 quantity: { type: 'number', example: 12 },
                 status: { type: 'integer', example: 0 },
                 statusName: { type: 'string', example: 'Order' },
+                expectedLineCount: { type: 'integer', example: 2 },
+                error: { type: 'boolean', nullable: true, example: false },
+                errorMessage: { type: 'string', nullable: true, example: '' },
                 productSpecification: { type: 'string', nullable: true, example: 'Vacuum packed' }
               }
             }
@@ -276,7 +294,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/status/{externalDocumentNo}': {
       get: {
         summary: 'Get BC order status by external document number',
-        description: 'Accepts the BOT external document number and company query parameter, then returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
+        description: 'Accepts the BOT external document number and company query parameter, then returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders or Imported SalesAL.',
         parameters: [
           {
             name: 'externalDocumentNo',
@@ -491,6 +509,25 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             }
           },
           404: { description: 'Imported order not found' }
+        }
+      }
+    },
+    '/api/imported-orders/{externalDocumentNo}/errors': {
+      get: {
+        summary: 'Get imported document processing errors',
+        description: 'Returns hard BC processing errors stamped on Imported Orders or Imported SalesAL lines for the selected company. Incomplete payload wait messages remain visible on the status endpoint lines but are not counted as hard errors.',
+        parameters: [
+          {
+            name: 'externalDocumentNo',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          },
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } }
+        ],
+        responses: {
+          200: { description: 'Imported document line errors' },
+          404: { description: 'Imported document not found' }
         }
       }
     }

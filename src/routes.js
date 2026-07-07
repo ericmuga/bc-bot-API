@@ -243,8 +243,23 @@ function summarizeImportedOrderStatus(lines) {
   return { state: 'imported', counts };
 }
 
+function collectLineErrors(lines) {
+  return lines
+    .filter((line) => line.error || line.statusName === 'Error')
+    .map((line) => ({
+      externalDocumentNo: line.externalDocumentNo,
+      lineNo: line.lineNo,
+      itemNo: line.itemNo,
+      errorMessage: line.errorMessage || (line.statusName === 'Error' ? 'Line is marked as Error in Business Central.' : '')
+    }));
+}
+
 function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLines, salesDocuments) {
   const importedSummary = summarizeImportedOrderStatus(importedLines);
+  const errors = [
+    ...collectLineErrors(importedLines),
+    ...collectLineErrors(importedSalesLines)
+  ];
 
   if (salesDocuments.postedInvoices.length) {
     const invoice = salesDocuments.postedInvoices[0];
@@ -258,6 +273,7 @@ function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLine
       sellToCustomerNo: invoice.sellToCustomerNo,
       importedOrderState: importedSummary.state,
       statusCounts: importedSummary.counts,
+      errors,
       salesDocuments
     };
   }
@@ -276,6 +292,7 @@ function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLine
       sellToCustomerNo: salesHeader.sellToCustomerNo,
       importedOrderState: importedSummary.state,
       statusCounts: importedSummary.counts,
+      errors,
       salesDocuments
     };
   }
@@ -289,6 +306,8 @@ function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLine
       documentNo: externalDocumentNo,
       lineCount: importedLines.length,
       statusCounts: importedSummary.counts,
+      expectedLineCount: importedLines[0]?.expectedLineCount || 0,
+      errors,
       salesDocuments
     };
   }
@@ -296,19 +315,23 @@ function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLine
   if (importedSalesLines.length) {
     const executedCount = importedSalesLines.filter((line) => line.executed).length;
     const postedCount = importedSalesLines.filter((line) => line.posted).length;
+    const hasErrors = errors.length > 0;
     return {
       externalDocumentNo,
-      orderStatus: postedCount === importedSalesLines.length ? 'posted' : executedCount ? 'processing' : 'imported',
+      orderStatus: hasErrors ? 'error' : postedCount === importedSalesLines.length ? 'posted' : executedCount ? 'processing' : 'imported',
       bcStage: 'Imported SalesAL',
       sourceTable: 'Imported SalesAL',
       documentNo: externalDocumentNo,
       documentType: 'Invoice',
       lineCount: importedSalesLines.length,
+      expectedLineCount: importedSalesLines[0]?.expectedLineCount || 0,
       statusCounts: {
         imported: importedSalesLines.length - executedCount,
         executed: executedCount,
-        posted: postedCount
+        posted: postedCount,
+        error: errors.length
       },
+      errors,
       salesDocuments
     };
   }
@@ -358,6 +381,8 @@ async function getImportedOrderLinesByExternalDocumentNo(pool, tables, externalD
         ${bracket('Item No_')} AS itemNo,
         ${bracket('Quantity')} AS quantity,
         ${bracket('Status')} AS status,
+        ${bracket('Expected Line Count')} AS expectedLineCount,
+        ${bracket('Error Message')} AS errorMessage,
         ${bracket('Product Specification')} AS productSpecification
       FROM ${tables.importedOrders}
       WHERE ${bracket('External Document No_')} = @externalDocumentNo
@@ -383,7 +408,10 @@ async function getImportedSalesLinesByExternalDocumentNo(pool, tables, externalD
         ${bracket('UnitPrice')} AS unitPrice,
         ${bracket('LineAmount')} AS lineAmount,
         ${bracket('Executed')} AS executed,
-        ${bracket('Posted')} AS posted
+        ${bracket('Posted')} AS posted,
+        ${bracket('Expected Line Count')} AS expectedLineCount,
+        ${bracket('Error')} AS error,
+        ${bracket('Error Message')} AS errorMessage
       FROM ${tables.importedSalesAL}
       WHERE ${bracket('ExtDocNo')} = @externalDocumentNo
       ORDER BY ${bracket('LineNo')}
@@ -766,6 +794,8 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
       ${bracket('Ship-to Name')} AS shipToName,
       ${bracket('Line No_')} AS lineNo,
       ${bracket('Status')} AS status,
+      ${bracket('Expected Line Count')} AS expectedLineCount,
+      ${bracket('Error Message')} AS errorMessage,
       ${bracket('Customer Specification')} AS customerSpecification,
       ${bracket('Company')} AS company,
       ${bracket('External Order URL')} AS externalOrderUrl,
@@ -806,6 +836,8 @@ router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res)
         ${bracket('Ship-to Name')} AS shipToName,
         ${bracket('Line No_')} AS lineNo,
         ${bracket('Status')} AS status,
+        ${bracket('Expected Line Count')} AS expectedLineCount,
+        ${bracket('Error Message')} AS errorMessage,
         ${bracket('Customer Specification')} AS customerSpecification,
         ${bracket('Company')} AS company,
         ${bracket('External Order URL')} AS externalOrderUrl,
@@ -856,6 +888,34 @@ router.get('/imported-orders/:externalDocumentNo/status', asyncHandler(async (re
   });
 }));
 
+router.get('/imported-orders/:externalDocumentNo/errors', asyncHandler(async (req, res) => {
+  const pool = await getPool();
+  const companyCode = companyFromRequest(req);
+  const tables = await getTables(companyCode);
+  const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
+  const [importedLines, importedSalesLines] = await Promise.all([
+    getImportedOrderLinesByExternalDocumentNo(pool, tables, externalDocumentNo),
+    getImportedSalesLinesByExternalDocumentNo(pool, tables, externalDocumentNo)
+  ]);
+  const errors = [
+    ...collectLineErrors(importedLines).map((line) => ({ ...line, sourceTable: 'Imported Orders' })),
+    ...collectLineErrors(importedSalesLines).map((line) => ({ ...line, sourceTable: 'Imported SalesAL' }))
+  ];
+
+  if (!importedLines.length && !importedSalesLines.length) {
+    return res.status(404).json({ error: 'Imported document not found.' });
+  }
+
+  return res.json({
+    company: getCompanyConfig(companyCode).code,
+    externalDocumentNo,
+    lineCount: importedLines.length || importedSalesLines.length,
+    expectedLineCount: importedLines[0]?.expectedLineCount || importedSalesLines[0]?.expectedLineCount || 0,
+    errorCount: errors.length,
+    errors
+  });
+}));
+
 router.post('/imported-orders', asyncHandler(async (req, res) => {
   const body = req.body || {};
   const companyCode = companyFromRequest(req);
@@ -889,6 +949,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
     unitPrice: documentType === 'invoice' ? requiredNumber(line.unitPrice, `lines[${index}].unitPrice`) : optionalNumber(line.unitPrice),
     lineAmount: optionalNumber(line.lineAmount, optionalNumber(line.quantity) * optionalNumber(line.unitPrice))
   }));
+  const expectedLineCount = lines.length;
   const totalHeaderQty = optionalNumber(body.totalHeaderQty, lines.reduce((total, line) => total + line.quantity, 0));
   const totalHeaderAmount = optionalNumber(body.totalHeaderAmount, lines.reduce((total, line) => total + line.lineAmount, 0));
 
@@ -921,7 +982,8 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('billTo', sql.NVarChar, billTo)
           .input('cuInvoiceNo', sql.NVarChar, cuInvoiceNo)
           .input('cuNo', sql.NVarChar, cuNo)
-          .input('signingTime', sql.NVarChar, signingTime);
+          .input('signingTime', sql.NVarChar, signingTime)
+          .input('expectedLineCount', sql.Int, expectedLineCount);
 
         await request.query(`
           INSERT INTO ${tables.importedSalesAL} (
@@ -946,7 +1008,10 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             ${bracket('BillTo')},
             ${bracket('CUInvoiceNo')},
             ${bracket('CUNo')},
-            ${bracket('SigningTime')}
+            ${bracket('SigningTime')},
+            ${bracket('Expected Line Count')},
+            ${bracket('Error')},
+            ${bracket('Error Message')}
           )
           VALUES (
             @sellToCustomerNo,
@@ -970,7 +1035,10 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @billTo,
             @cuInvoiceNo,
             @cuNo,
-            @signingTime
+            @signingTime,
+            @expectedLineCount,
+            0,
+            ''
           )
         `);
       } else {
@@ -989,7 +1057,8 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('customerSpecification', sql.NVarChar, customerSpecification)
           .input('productSpecification', sql.NVarChar, line.productSpecification)
           .input('company', sql.NVarChar, company.code)
-          .input('externalOrderUrl', sql.NVarChar, externalOrderUrl);
+          .input('externalOrderUrl', sql.NVarChar, externalOrderUrl)
+          .input('expectedLineCount', sql.Int, expectedLineCount);
 
         await request.query(`
           INSERT INTO ${tables.importedOrders} (
@@ -1007,7 +1076,9 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             ${bracket('Customer Specification')},
             ${bracket('Company')},
             ${bracket('External Order URL')},
-            ${bracket('Product Specification')}
+            ${bracket('Product Specification')},
+            ${bracket('Expected Line Count')},
+            ${bracket('Error Message')}
           )
           VALUES (
             @sellToCustomerNo,
@@ -1024,7 +1095,9 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @customerSpecification,
             @company,
             @externalOrderUrl,
-            @productSpecification
+            @productSpecification,
+            @expectedLineCount,
+            ''
           )
         `);
       }
