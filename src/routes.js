@@ -491,11 +491,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
     WITH FilteredCustomers AS (
       SELECT TOP (@limit)
         ${bracket('No_')} AS customerNo,
-        ${bracket('Name')} AS name,
-        ${bracket('Customer Price Group')} AS customerPriceGroup,
-        ${bracket('Customer Disc_ Group')} AS customerDiscGroup,
-        ${bracket('Payment Terms Code')} AS paymentTermsCode,
-        ${bracket('Salesperson Code')} AS salespersonCode
+        ${bracket('Name')} AS name
       FROM ${customer}
       WHERE ${customerWhere}
         ${searchClause}
@@ -505,10 +501,6 @@ router.get('/customers', asyncHandler(async (req, res) => {
       fc.customerNo AS id,
       fc.customerNo,
       fc.name,
-      fc.customerPriceGroup,
-      fc.customerDiscGroup,
-      fc.paymentTermsCode,
-      fc.salespersonCode,
       sta.${bracket('Code')} AS shipToCode,
       sta.${bracket('Name')} AS shipToName
     FROM FilteredCustomers fc
@@ -526,10 +518,6 @@ router.get('/customers', asyncHandler(async (req, res) => {
         id: row.customerNo,
         customerNo: row.customerNo,
         name: row.name,
-        customerPriceGroup: row.customerPriceGroup,
-        customerDiscGroup: row.customerDiscGroup,
-        paymentTermsCode: row.paymentTermsCode,
-        salespersonCode: row.salespersonCode,
         shipTo: []
       };
       byCustomerNo.set(row.customerNo, customerRow);

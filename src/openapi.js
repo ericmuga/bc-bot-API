@@ -64,13 +64,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       Customer: {
         type: 'object',
         properties: {
-          id: { type: 'string', example: '6f7af4b2-62f4-ee11-a1fd-6045bd8c9f6e' },
+          id: { type: 'string', example: '90000' },
           customerNo: { type: 'string', example: '90000' },
           name: { type: 'string', example: 'Web Customer Ltd' },
-          customerPriceGroup: { type: 'string', nullable: true, example: 'WEB' },
-          customerDiscGroup: { type: 'string', nullable: true, example: 'WEB' },
-          paymentTermsCode: { type: 'string', nullable: true, example: 'COD' },
-          salespersonCode: { type: 'string', nullable: true, example: '019' },
           shipTo: {
             type: 'array',
             items: {

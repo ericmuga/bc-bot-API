@@ -242,12 +242,9 @@ Important BC lifecycle note:
 {
   "data": [
     {
+      "id": "90000",
       "customerNo": "90000",
       "name": "Web Customer Ltd",
-      "customerPriceGroup": "WEB",
-      "customerDiscGroup": "WEB",
-      "paymentTermsCode": "COD",
-      "salespersonCode": "019",
       "shipTo": [
         {
           "code": "NAIROBI",
