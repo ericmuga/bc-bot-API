@@ -115,6 +115,11 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       BcOrderStatus: {
         type: 'object',
         properties: {
+          company: {
+            type: 'string',
+            enum: ['CM', 'FCL', 'FLM', 'RMK'],
+            example: 'FCL'
+          },
           externalDocumentNo: { type: 'string', example: 'BOT-100045' },
           orderStatus: {
             type: 'string',
@@ -142,6 +147,11 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       ImportedOrderStatus: {
         type: 'object',
         properties: {
+          company: {
+            type: 'string',
+            enum: ['CM', 'FCL', 'FLM', 'RMK'],
+            example: 'FCL'
+          },
           externalDocumentNo: { type: 'string', example: 'BOT-100045' },
           state: {
             type: 'string',
@@ -236,7 +246,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/status/{externalDocumentNo}': {
       get: {
         summary: 'Get BC order status by external document number',
-        description: 'Compatibility route. Prefer /api/{company}/status/{externalDocumentNo}. Accepts the BOT external document number and returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
+        description: 'Accepts the BOT external document number and company query parameter, then returns the current BC order status. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
         parameters: [
           {
             name: 'externalDocumentNo',
@@ -262,7 +272,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/{company}/status/{externalDocumentNo}': {
       get: {
         summary: 'Get company-prefixed BC order status',
-        description: 'Accepts the company flag and BOT external document number, then returns the current BC order status from that company. Lookup priority is Sales Invoice Header, then Sales Header, then Imported Orders.',
+        deprecated: true,
+        description: 'Compatibility route. Prefer /api/status/{externalDocumentNo}?company=FCL. Accepts the company flag and BOT external document number, then returns the current BC order status from that company.',
         parameters: [
           {
             name: 'company',
@@ -400,7 +411,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/imported-orders/{externalDocumentNo}/status': {
       get: {
         summary: 'Get imported order processing status',
-        description: 'Returns staged line counts, live Sales Header matches, and posted Sales Invoice Header matches for one external document. Imported Orders status Post means the order has been created as a Sales Order; the final posted state is confirmed from Sales Invoice Header.',
+        description: 'Returns staged line counts, live Sales Header matches, and posted Sales Invoice Header matches for one external document in the selected company. Imported Orders status Post means the order has been created as a Sales Order; the final posted state is confirmed from Sales Invoice Header.',
         parameters: [
           {
             name: 'externalDocumentNo',

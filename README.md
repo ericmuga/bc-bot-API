@@ -63,13 +63,14 @@ FLM -> FLM1$
 RMK -> RMK$
 ```
 
-For regular `GET` endpoints, pass the flag as a query parameter. For the primary order status endpoint, the company is part of the path:
+For transaction `GET` endpoints, pass the flag as a query parameter:
 
 ```http
 GET /api/customers?company=FCL
 GET /api/items?company=RMK
 GET /api/imported-orders?company=CM&externalDocumentNo=BOT-100045
-GET /api/FLM/status/BOT-100045
+GET /api/status/BOT-100045?company=FLM
+GET /api/imported-orders/BOT-100045/status?company=FLM
 ```
 
 For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag is also written to the Imported Orders `Company` field.
@@ -79,7 +80,6 @@ For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag 
 ```text
 GET  /api/health
 GET  /api/status
-GET  /api/:company/status/:externalDocumentNo
 GET  /api/status/:externalDocumentNo
 GET  /api/customers
 GET  /api/items
@@ -145,13 +145,13 @@ GET  /api/imported-orders/:externalDocumentNo/status
 }
 ```
 
-`GET /api/:company/status/:externalDocumentNo` is the primary BOT document status check. It accepts the company flag and BOT external document number and returns the current BC status:
+`GET /api/status/:externalDocumentNo?company=FCL` is the primary BOT document status check. It accepts the company flag as a query parameter and BOT external document number as the path value, then returns the current BC status:
 
 ```http
-GET /api/FCL/status/BOT-100045
-GET /api/CM/status/BOT-100045
-GET /api/FLM/status/BOT-100045
-GET /api/RMK/status/BOT-100045
+GET /api/status/BOT-100045?company=FCL
+GET /api/status/BOT-100045?company=CM
+GET /api/status/BOT-100045?company=FLM
+GET /api/status/BOT-100045?company=RMK
 ```
 
 ```json
@@ -171,10 +171,10 @@ GET /api/RMK/status/BOT-100045
 }
 ```
 
-The older query-form route is still supported for compatibility:
+The older company-prefixed route is still supported for compatibility:
 
 ```http
-GET /api/status/BOT-100045?company=FCL
+GET /api/FCL/status/BOT-100045
 ```
 
 Lookup priority:
@@ -185,10 +185,15 @@ Lookup priority:
 3. Imported Orders           -> orderStatus = imported/processing/salesOrder/cancelled/error
 ```
 
-`GET /api/imported-orders/:externalDocumentNo/status` checks a specific staged document:
+`GET /api/imported-orders/:externalDocumentNo/status?company=FCL` checks a specific staged document in the selected company:
+
+```http
+GET /api/imported-orders/BOT-100045/status?company=FCL
+```
 
 ```json
 {
+  "company": "FCL",
   "externalDocumentNo": "BOT-100045",
   "state": "imported",
   "lineCount": 2,

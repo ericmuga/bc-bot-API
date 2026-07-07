@@ -184,18 +184,23 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/{{company}}/status/{{externalDocumentNo}}",
+              "raw": "{{baseUrl}}/api/status/{{externalDocumentNo}}?company={{company}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
-                "{{company}}",
                 "status",
                 "{{externalDocumentNo}}"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
               ]
             },
-            "description": "Primary BOT status check. Accepts the company flag and external document number, then returns current BC status from Sales Invoice Header, Sales Header, or Imported Orders."
+            "description": "Primary BOT status check. Accepts the company query parameter and external document number, then returns current BC status from Sales Invoice Header, Sales Header, or Imported Orders."
           },
           "event": [
             {
@@ -206,6 +211,7 @@
                   "pm.test('BC order status is returned', function () {",
                   "  pm.response.to.have.status(200);",
                   "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
                   "  pm.expect(json.orderStatus).to.be.a('string');",
                   "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Sales Header', 'Posted Sales Invoice']);",
@@ -346,6 +352,7 @@
                   "pm.test('Imported order is staged', function () {",
                   "  pm.response.to.have.status(201);",
                   "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
                   "  pm.expect(json.lineCount).to.eql(2);",
                   "});"
@@ -425,6 +432,7 @@
                   "pm.test('Filtered imported orders are returned', function () {",
                   "  pm.response.to.have.status(200);",
                   "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.count).to.be.a('number');",
                   "  pm.expect(json.data).to.be.an('array');",
                   "  if (json.data.length) {",
@@ -471,6 +479,7 @@
                   "pm.test('Imported order lines are returned', function () {",
                   "  pm.response.to.have.status(200);",
                   "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
                   "  pm.expect(json.lines[0]).to.have.property('productSpecification');",
                   "});"
