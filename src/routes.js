@@ -121,6 +121,63 @@ function importedOrderStatusValue(value) {
   throw error;
 }
 
+function unquoteSqlIdentifier(value) {
+  return String(value || '').replace(/^\[/, '').replace(/\]$/, '').replace(/]]/g, ']');
+}
+
+function splitQualifiedTableName(qualifiedTableName) {
+  const parts = String(qualifiedTableName)
+    .split(/\]\.\[/)
+    .map(unquoteSqlIdentifier);
+
+  if (parts.length === 2) {
+    return {
+      schema: parts[0],
+      table: parts[1]
+    };
+  }
+
+  return {
+    schema: config.sql.schema,
+    table: unquoteSqlIdentifier(qualifiedTableName)
+  };
+}
+
+async function getExistingColumns(pool, qualifiedTableName, columnNames) {
+  const tableInfo = splitQualifiedTableName(qualifiedTableName);
+  const request = pool.request()
+    .input('schema', sql.NVarChar, tableInfo.schema)
+    .input('table', sql.NVarChar, tableInfo.table);
+  const parameterNames = columnNames.map((columnName, index) => {
+    const parameterName = `column${index}`;
+    request.input(parameterName, sql.NVarChar, columnName);
+    return `@${parameterName}`;
+  });
+
+  const result = await request.query(`
+    SELECT COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = @schema
+      AND TABLE_NAME = @table
+      AND COLUMN_NAME IN (${parameterNames.join(', ')})
+  `);
+
+  return new Set(result.recordset.map((row) => row.COLUMN_NAME));
+}
+
+async function buildColumnAwareWhere(pool, qualifiedTableName, requestedFilters) {
+  const existingColumns = await getExistingColumns(
+    pool,
+    qualifiedTableName,
+    requestedFilters.map((filter) => filter.column)
+  );
+  const filters = requestedFilters
+    .filter((filter) => existingColumns.has(filter.column))
+    .map((filter) => `${bracket(filter.column)} ${filter.operator} ${filter.value}`);
+
+  return filters.length ? filters.join(' AND ') : '1 = 1';
+}
+
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -421,6 +478,10 @@ router.get('/customers', asyncHandler(async (req, res) => {
   const request = pool.request()
     .input('limit', sql.Int, limit)
     .input('search', sql.NVarChar, `%${search}%`);
+  const customerWhere = await buildColumnAwareWhere(pool, customer, [
+    { column: 'Web Customer', operator: '=', value: '1' },
+    { column: 'Blocked', operator: '=', value: '0' }
+  ]);
 
   const searchClause = search
     ? `AND (${bracket('No_')} LIKE @search OR ${bracket('Name')} LIKE @search)`
@@ -436,12 +497,12 @@ router.get('/customers', asyncHandler(async (req, res) => {
         ${bracket('Payment Terms Code')} AS paymentTermsCode,
         ${bracket('Salesperson Code')} AS salespersonCode
       FROM ${customer}
-      WHERE ${config.filters.customers}
+      WHERE ${customerWhere}
         ${searchClause}
       ORDER BY ${bracket('No_')}
     )
     SELECT
-      fc.id,
+      fc.customerNo AS id,
       fc.customerNo,
       fc.name,
       fc.customerPriceGroup,
@@ -496,6 +557,10 @@ router.get('/items', asyncHandler(async (req, res) => {
   const request = pool.request()
     .input('limit', sql.Int, limit)
     .input('search', sql.NVarChar, `%${search}%`);
+  const itemWhere = await buildColumnAwareWhere(pool, item, [
+    { column: 'PDA Item', operator: '=', value: '1' },
+    { column: 'Blocked', operator: '=', value: '0' }
+  ]);
 
   const searchClause = search
     ? `AND (${bracket('No_')} LIKE @search OR ${bracket('Description')} LIKE @search)`
@@ -509,7 +574,7 @@ router.get('/items', asyncHandler(async (req, res) => {
       ${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
       ${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure
     FROM ${item}
-    WHERE ${config.filters.items}
+    WHERE ${itemWhere}
       ${searchClause}
     ORDER BY ${bracket('No_')}
   `);
