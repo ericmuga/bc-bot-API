@@ -357,29 +357,8 @@ Example conflict response:
 }
 ```
 
-## SQL Table Resolution
+## Data Provider
 
-The service auto-discovers Business Central SQL tables by company/name patterns such as:
+The API contract is intentionally kept separate from the Business Central access method. The current deployment can read/write through a configured data provider, while the same public endpoints can later be backed by Business Central API pages without changing BOT integrations.
 
-```text
-<Company>$Imported Orders
-<Company>$Imported Orders$<app-id>
-```
-
-If auto-discovery finds the wrong table, set explicit overrides:
-
-```env
-SQL_TABLE_IMPORTED_ORDERS=FCL$Imported Orders$23dc970e-11e8-4d9b-8613-b7582aec86ba
-SQL_TABLE_CUSTOMER=FCL$Customer
-SQL_TABLE_ITEM=FCL$Item
-SQL_TABLE_SHIP_TO_ADDRESS=FCL$Ship-to Address
-SQL_TABLE_SALES_HEADER=FCL$Sales Header
-SQL_TABLE_SALES_INVOICE_HEADER=FCL$Sales Invoice Header
-```
-
-Customer and item filters are configurable:
-
-```env
-CUSTOMERS_WHERE=[Web Customer] = 1 AND [Blocked] = 0
-ITEMS_WHERE=[PDA Item] = 1 AND [Blocked] = 0
-```
+Public integrations should rely only on the documented HTTP endpoints, request payloads, response payloads, company flags, status values, and error codes in this guide.
