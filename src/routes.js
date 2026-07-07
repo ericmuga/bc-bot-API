@@ -683,8 +683,11 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
   const request = pool.request()
     .input('limit', sql.Int, limit)
     .input('search', sql.NVarChar, `%${search}%`);
-  const contactColumns = await getExistingColumns(pool, contact, ['Salesperson Code', 'Phone No_', 'Name']);
+  const contactColumns = await getExistingColumns(pool, contact, ['Salesperson Code', 'Phone No_', 'Name', 'No_']);
   const canJoinContacts = contactColumns.has('Salesperson Code') && contactColumns.has('Name');
+  const contactCodeSelect = contactColumns.has('No_')
+    ? `ct.${bracket('No_')} AS contactCode`
+    : `CAST('' AS nvarchar(20)) AS contactCode`;
   const contactPhoneSelect = contactColumns.has('Phone No_')
     ? `ct.${bracket('Phone No_')} AS contactPhone`
     : `CAST('' AS nvarchar(30)) AS contactPhone`;
@@ -692,8 +695,8 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
     ? `LEFT JOIN ${contact} ct ON ct.${bracket('Salesperson Code')} = sp.salespersonCode`
     : '';
   const contactSelect = canJoinContacts
-    ? `ct.${bracket('Name')} AS contactName, ${contactPhoneSelect}`
-    : `CAST(NULL AS nvarchar(100)) AS contactName, CAST('' AS nvarchar(30)) AS contactPhone`;
+    ? `${contactCodeSelect}, ct.${bracket('Name')} AS contactName, ${contactPhoneSelect}`
+    : `CAST('' AS nvarchar(20)) AS contactCode, CAST(NULL AS nvarchar(100)) AS contactName, CAST('' AS nvarchar(30)) AS contactPhone`;
 
   const searchClause = search
     ? `WHERE (${bracket('Code')} LIKE @search OR ${bracket('Name')} LIKE @search)`
@@ -733,6 +736,7 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
 
     if (row.contactName) {
       salesperson.contacts.push({
+        code: row.contactCode || '',
         name: row.contactName,
         phone: row.contactPhone || ''
       });

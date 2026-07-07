@@ -292,7 +292,7 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
 
 ## Salespeople Payload
 
-`GET /api/salespeople` returns salespeople with nested contact names and phone numbers:
+`GET /api/salespeople` returns salespeople with nested contact codes, names, and phone numbers:
 
 ```json
 {
@@ -303,6 +303,7 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
       "name": "Jane Sales",
       "contacts": [
         {
+          "code": "CT000123",
           "name": "Jane Sales",
           "phone": "+254700000000"
         }

@@ -106,6 +106,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             items: {
               type: 'object',
               properties: {
+                code: { type: 'string', example: 'CT000123' },
                 name: { type: 'string', example: 'Jane Sales' },
                 phone: { type: 'string', example: '+254700000000' }
               }
@@ -394,7 +395,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/salespeople': {
       get: {
         summary: 'List salespeople',
-        description: 'Lists salespeople with nested contact names and phone numbers for the selected company.',
+        description: 'Lists salespeople with nested contact codes, names, and phone numbers for the selected company.',
         parameters: [
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           { name: 'search', in: 'query', schema: { type: 'string' } },

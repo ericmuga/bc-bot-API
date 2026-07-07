@@ -310,7 +310,7 @@
                 }
               ]
             },
-            "description": "Reads salespeople for the selected company with nested contact names and phone numbers."
+            "description": "Reads salespeople for the selected company with nested contact codes, names and phone numbers."
           },
           "event": [
             {
@@ -325,6 +325,9 @@
                   "  pm.expect(json.data).to.be.an('array');",
                   "  if (json.data.length) {",
                   "    pm.expect(json.data[0].contacts).to.be.an('array');",
+                  "    if (json.data[0].contacts.length) {",
+                  "      pm.expect(json.data[0].contacts[0]).to.have.property('code');",
+                  "    }",
                   "  }",
                   "});"
                 ]
