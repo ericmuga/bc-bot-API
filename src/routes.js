@@ -479,7 +479,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
     .input('limit', sql.Int, limit)
     .input('search', sql.NVarChar, `%${search}%`);
   const customerWhere = await buildColumnAwareWhere(pool, customer, [
-    { column: 'Web Customer', operator: '=', value: '1' },
+    { column: 'Web Portal', operator: '=', value: '1' },
     { column: 'Blocked', operator: '=', value: '0' }
   ]);
 

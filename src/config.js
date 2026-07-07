@@ -67,7 +67,7 @@ const config = {
     salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || ''
   },
   filters: {
-    customers: process.env.CUSTOMERS_WHERE || '[Web Customer] = 1 AND [Blocked] = 0',
+    customers: process.env.CUSTOMERS_WHERE || '[Web Portal] = 1 AND [Blocked] = 0',
     items: process.env.ITEMS_WHERE || '[PDA Item] = 1 AND [Blocked] = 0'
   },
   defaults: {
