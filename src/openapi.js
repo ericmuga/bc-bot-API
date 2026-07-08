@@ -470,7 +470,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'shipToCode', in: 'query', schema: { type: 'string' }, description: 'Exact nested ship-to code filter.' },
           { name: 'shipTo', in: 'query', schema: { type: 'string' }, description: 'Alias for shipToCode.' },
           { name: 'shipToName', in: 'query', schema: { type: 'string' }, description: 'Partial nested ship-to name match.' },
-          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -480,6 +482,15 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 schema: {
                   type: 'object',
                   properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 25 },
+                    totalCount: { type: 'integer', example: 250 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 25 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 10 },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
                     data: {
                       type: 'array',
                       items: { $ref: '#/components/schemas/Customer' }
@@ -498,7 +509,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         parameters: [
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           { name: 'search', in: 'query', schema: { type: 'string' } },
-          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -509,6 +522,14 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                   type: 'object',
                   properties: {
                     company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 25 },
+                    totalCount: { type: 'integer', example: 250 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 25 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 10 },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
                     data: {
                       type: 'array',
                       items: { $ref: '#/components/schemas/Item' }
@@ -556,7 +577,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'contactName', in: 'query', schema: { type: 'string' }, description: 'Only salespeople with a linked contact name containing this value.' },
           { name: 'contactPhone', in: 'query', schema: { type: 'string' }, description: 'Only salespeople with a linked contact phone containing this value.' },
           { name: 'phone', in: 'query', schema: { type: 'string' }, description: 'Alias for contactPhone.' },
-          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -567,6 +590,14 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                   type: 'object',
                   properties: {
                     company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 25 },
+                    totalCount: { type: 'integer', example: 250 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 25 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 10 },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
                     data: {
                       type: 'array',
                       items: { $ref: '#/components/schemas/Salesperson' }
@@ -601,10 +632,36 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             schema: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
             description: 'Imported Orders status: Order/Execute/Post/Cancelled/Error or 0-4.'
           },
-          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
-          200: { description: 'Filtered imported order lines' },
+          200: {
+            description: 'Filtered imported order lines',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 100 },
+                    totalCount: { type: 'integer', example: 1500 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 100 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 15 },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
+                    data: {
+                      type: 'array',
+                      items: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          },
           400: { description: 'Invalid filter' }
         }
       },

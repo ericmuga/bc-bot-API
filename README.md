@@ -77,6 +77,32 @@ GET /api/imported-orders/BOT-100045/status?company=FLM
 
 For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag is also written to the Imported Orders `Company` field.
 
+## Pagination
+
+List endpoints support `limit`, `page`, and `offset`:
+
+```http
+GET /api/customers?company=FCL&limit=25&page=2
+GET /api/items?company=FCL&limit=50&offset=100
+GET /api/salespeople?company=FCL&limit=25&page=1
+GET /api/imported-orders?company=FCL&limit=100&page=3
+```
+
+`page` is 1-based. `offset` is 0-based and overrides `page` when supplied. List responses keep `data` unchanged and add:
+
+```json
+{
+  "count": 25,
+  "totalCount": 250,
+  "page": 2,
+  "limit": 25,
+  "offset": 25,
+  "totalPages": 10,
+  "hasNext": true,
+  "hasPrevious": true
+}
+```
+
 The items endpoint prefers the Business Central Item extension field `PDA Item = 1`. For backward compatibility, if the extension SQL table cannot be resolved it falls back to a base-table `PDA Item` column when present, and otherwise behaves like the earlier read endpoint. If the Item extension SQL table cannot be resolved automatically, set:
 
 ```env

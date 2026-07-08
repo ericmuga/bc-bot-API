@@ -20,6 +20,34 @@ function limitFromQuery(value) {
   return Math.min(parsed, config.defaults.maxLimit);
 }
 
+function paginationFromQuery(query) {
+  const limit = limitFromQuery(query.limit);
+  const parsedPage = Number.parseInt(query.page, 10);
+  const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+  const parsedOffset = Number.parseInt(query.offset, 10);
+  const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : (page - 1) * limit;
+
+  return { limit, page: Math.floor(offset / limit) + 1, offset };
+}
+
+function paginatedResponse(companyCode, data, pagination, totalCount) {
+  const normalizedTotalCount = Number(totalCount) || 0;
+  const totalPages = normalizedTotalCount > 0 ? Math.ceil(normalizedTotalCount / pagination.limit) : 0;
+
+  return {
+    company: getCompanyConfig(companyCode).code,
+    count: data.length,
+    totalCount: normalizedTotalCount,
+    page: pagination.page,
+    limit: pagination.limit,
+    offset: pagination.offset,
+    totalPages,
+    hasNext: pagination.offset + data.length < normalizedTotalCount,
+    hasPrevious: pagination.offset > 0,
+    data
+  };
+}
+
 function requireString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') {
     const error = new Error(`${name} is required.`);
@@ -1153,7 +1181,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
   const { customer, customerExt, shipToAddress } = await getTables(companyCode);
-  const limit = limitFromQuery(req.query.limit);
+  const pagination = paginationFromQuery(req.query);
   const search = optionalString(req.query.search);
 
   const customerExtWebPortalColumn = customerExt
@@ -1184,7 +1212,8 @@ router.get('/customers', asyncHandler(async (req, res) => {
   const blockedColumn = await getExistingColumnName(pool, customer, 'Blocked');
   const blockedClause = blockedColumn ? `AND c.${bracket(blockedColumn)} = 0` : '';
   const request = pool.request()
-    .input('limit', sql.Int, limit)
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset)
     .input('search', sql.NVarChar, `%${search}%`);
   const filters = [];
   const customerNos = optionalStringList(req.query.customerNo, req.query.customerNos, req.query.customers, req.query.id);
@@ -1222,8 +1251,8 @@ router.get('/customers', asyncHandler(async (req, res) => {
   const filterClause = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
   const result = await request.query(`
-    WITH FilteredCustomers AS (
-      SELECT TOP (@limit)
+    WITH MatchingCustomers AS (
+      SELECT
         c.${bracket('No_')} AS customerNo,
         c.${bracket('Name')} AS name,
         ${sectorExpression} AS sector
@@ -1234,13 +1263,23 @@ router.get('/customers', asyncHandler(async (req, res) => {
         ${blockedClause}
         ${searchClause}
         ${filterClause}
-      ORDER BY c.${bracket('No_')}
+    ),
+    FilteredCustomers AS (
+      SELECT
+        customerNo,
+        name,
+        sector,
+        COUNT(*) OVER() AS totalCount
+      FROM MatchingCustomers
+      ORDER BY customerNo
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     )
     SELECT
       fc.customerNo AS id,
       fc.customerNo,
       fc.name,
       fc.sector,
+      fc.totalCount,
       sta.${bracket('Code')} AS shipToCode,
       sta.${bracket('Name')} AS shipToName
     FROM FilteredCustomers fc
@@ -1251,7 +1290,9 @@ router.get('/customers', asyncHandler(async (req, res) => {
 
   const customers = [];
   const byCustomerNo = new Map();
+  let totalCount = 0;
   for (const row of result.recordset) {
+    totalCount = Math.max(totalCount, Number(row.totalCount) || 0);
     let customerRow = byCustomerNo.get(row.customerNo);
     if (!customerRow) {
       customerRow = {
@@ -1273,14 +1314,14 @@ router.get('/customers', asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({ company: getCompanyConfig(companyCode).code, data: customers });
+  res.json(paginatedResponse(companyCode, customers, pagination, totalCount));
 }));
 
 router.get('/items', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
   const { item, itemExt } = await getTables(companyCode);
-  const limit = limitFromQuery(req.query.limit);
+  const pagination = paginationFromQuery(req.query);
   const search = optionalString(req.query.search);
 
   const itemExtPdaItemColumn = itemExt
@@ -1315,7 +1356,8 @@ router.get('/items', asyncHandler(async (req, res) => {
   const barcodeTextSelect = barcodeTextColumn ? `${barcodeTextAlias}.${bracket(barcodeTextColumn)}` : `CAST('' AS nvarchar(250))`;
   const barcodeTypeSelect = barcodeTypeColumn ? `${barcodeTypeAlias}.${bracket(barcodeTypeColumn)}` : `CAST(0 AS int)`;
   const request = pool.request()
-    .input('limit', sql.Int, limit)
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset)
     .input('search', sql.NVarChar, `%${search}%`);
   const filters = [];
   const itemNos = optionalStringList(req.query.itemNo, req.query.itemNos, req.query.items, req.query.id);
@@ -1417,26 +1459,35 @@ router.get('/items', asyncHandler(async (req, res) => {
   const filterClause = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
   const result = await request.query(`
-    SELECT TOP (@limit)
-      i.${bracket('No_')} AS id,
-      i.${bracket('No_')} AS itemNo,
-      i.${bracket('Description')} AS description,
-      i.${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
-      i.${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure,
-      ${barcodeNoSelect} AS barcodeNo,
-      ${barcodeTextSelect} AS barcodeText,
-      ${barcodeTypeSelect} AS barcodeType
-    FROM ${item} i
-    ${itemExtJoin}
-    WHERE 1 = 1
-      ${pdaItemClause}
-      ${blockedClause}
-      ${searchClause}
-      ${filterClause}
-    ORDER BY i.${bracket('No_')}
+    WITH MatchingItems AS (
+      SELECT
+        i.${bracket('No_')} AS id,
+        i.${bracket('No_')} AS itemNo,
+        i.${bracket('Description')} AS description,
+        i.${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
+        i.${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure,
+        ${barcodeNoSelect} AS barcodeNo,
+        ${barcodeTextSelect} AS barcodeText,
+        ${barcodeTypeSelect} AS barcodeType
+      FROM ${item} i
+      ${itemExtJoin}
+      WHERE 1 = 1
+        ${pdaItemClause}
+        ${blockedClause}
+        ${searchClause}
+        ${filterClause}
+    )
+    SELECT
+      *,
+      COUNT(*) OVER() AS totalCount
+    FROM MatchingItems
+    ORDER BY itemNo
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
   `);
 
-  res.json({ company: getCompanyConfig(companyCode).code, data: result.recordset });
+  const data = result.recordset.map(({ totalCount, ...line }) => line);
+  const totalCount = result.recordset[0]?.totalCount || 0;
+  res.json(paginatedResponse(companyCode, data, pagination, totalCount));
 }));
 
 function routePaymentTypeName(routeType) {
@@ -1541,7 +1592,7 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
     shipToAddressExt,
     districtGroupCode
   } = await getTables(companyCode);
-  const limit = limitFromQuery(req.query.limit);
+  const pagination = paginationFromQuery(req.query);
   const search = optionalString(req.query.search);
   const salespersonCodes = optionalStringList(
     req.query.salespersonCode,
@@ -1555,7 +1606,8 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
   const contactPhone = optionalString(req.query.contactPhone || req.query.phone);
 
   const request = pool.request()
-    .input('limit', sql.Int, limit)
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset)
     .input('search', sql.NVarChar, `%${search}%`);
   const contactColumns = await getExistingColumns(pool, contact, ['Salesperson Code', 'Phone No_', 'Name', 'No_']);
   const canJoinContacts = contactColumns.has('Salesperson Code') && contactColumns.has('Name');
@@ -1673,8 +1725,8 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
     : '';
 
   const result = await request.query(`
-    WITH FilteredSalespeople AS (
-      SELECT TOP (@limit)
+    WITH MatchingSalespeople AS (
+      SELECT
         spBase.${bracket('Code')} AS salespersonCode,
         spBase.${bracket('Name')} AS name,
         ${currentRouteExpression} AS currentRoute,
@@ -1685,7 +1737,19 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
       ${salespersonExtJoin}
       ${routeJoin}
       ${filterClause}
-      ORDER BY spBase.${bracket('Code')}
+    ),
+    FilteredSalespeople AS (
+      SELECT
+        salespersonCode,
+        name,
+        currentRoute,
+        routeName,
+        routePayBill,
+        routeType,
+        COUNT(*) OVER() AS totalCount
+      FROM MatchingSalespeople
+      ORDER BY salespersonCode
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     )
     SELECT
       sp.salespersonCode,
@@ -1694,6 +1758,7 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
       sp.routeName,
       sp.routePayBill,
       sp.routeType,
+      sp.totalCount,
       ${contactSelect}
     FROM FilteredSalespeople sp
     ${contactJoin}
@@ -1702,7 +1767,9 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
 
   const salespeople = [];
   const bySalespersonCode = new Map();
+  let totalCount = 0;
   for (const row of result.recordset) {
+    totalCount = Math.max(totalCount, Number(row.totalCount) || 0);
     let salesperson = bySalespersonCode.get(row.salespersonCode);
     if (!salesperson) {
       const paymentType = routePaymentTypeName(row.routeType);
@@ -1775,16 +1842,17 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({ company: getCompanyConfig(companyCode).code, data: salespeople });
+  res.json(paginatedResponse(companyCode, salespeople, pagination, totalCount));
 }));
 
 router.get('/imported-orders', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
   const { importedOrders } = await getTables(companyCode);
-  const limit = limitFromQuery(req.query.limit);
+  const pagination = paginationFromQuery(req.query);
   const request = pool.request()
-    .input('limit', sql.Int, limit);
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset);
   const filters = [];
 
   addImportedOrderFilter(filters, request, req.query, 'externalDocumentNo', sql.NVarChar, 'External Document No_');
@@ -1818,38 +1886,43 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
 
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
   const result = await request.query(`
-    SELECT TOP (@limit)
-      ${bracket('Sell-to Customer No_')} AS sellToCustomerNo,
-      ${bracket('Shipment Date')} AS shipmentDate,
-      ${bracket('Salesperson Code')} AS salespersonCode,
-      ${bracket('Ship-to Code')} AS shipToCode,
-      ${bracket('External Document No_')} AS externalDocumentNo,
-      ${bracket('Item No_')} AS itemNo,
-      ${bracket('Quantity')} AS quantity,
-      ${bracket('Unit of Measure')} AS unitOfMeasure,
-      ${bracket('Ship-to Name')} AS shipToName,
-      ${bracket('Line No_')} AS lineNo,
-      ${bracket('Status')} AS status,
-      ${bracket('Expected Line Count')} AS expectedLineCount,
-      ${bracket('Error Message')} AS errorMessage,
-      ${bracket('Customer Specification')} AS customerSpecification,
-      ${bracket('Company')} AS company,
-      ${bracket('External Order URL')} AS externalOrderUrl,
-      ${bracket('PDA Order')} AS pdaOrder,
-      ${bracket('Product Specification')} AS productSpecification
-    FROM ${importedOrders}
-    ${whereClause}
-    ORDER BY ${bracket('External Document No_')}, ${bracket('Line No_')}
+    WITH MatchingImportedOrders AS (
+      SELECT
+        ${bracket('Sell-to Customer No_')} AS sellToCustomerNo,
+        ${bracket('Shipment Date')} AS shipmentDate,
+        ${bracket('Salesperson Code')} AS salespersonCode,
+        ${bracket('Ship-to Code')} AS shipToCode,
+        ${bracket('External Document No_')} AS externalDocumentNo,
+        ${bracket('Item No_')} AS itemNo,
+        ${bracket('Quantity')} AS quantity,
+        ${bracket('Unit of Measure')} AS unitOfMeasure,
+        ${bracket('Ship-to Name')} AS shipToName,
+        ${bracket('Line No_')} AS lineNo,
+        ${bracket('Status')} AS status,
+        ${bracket('Expected Line Count')} AS expectedLineCount,
+        ${bracket('Error Message')} AS errorMessage,
+        ${bracket('Customer Specification')} AS customerSpecification,
+        ${bracket('Company')} AS company,
+        ${bracket('External Order URL')} AS externalOrderUrl,
+        ${bracket('PDA Order')} AS pdaOrder,
+        ${bracket('Product Specification')} AS productSpecification
+      FROM ${importedOrders}
+      ${whereClause}
+    )
+    SELECT
+      *,
+      COUNT(*) OVER() AS totalCount
+    FROM MatchingImportedOrders
+    ORDER BY externalDocumentNo, lineNo
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
   `);
 
-  res.json({
-    company: getCompanyConfig(companyCode).code,
-    count: result.recordset.length,
-    data: result.recordset.map((line) => ({
-      ...line,
-      statusName: importedOrderStatusName(line.status)
-    }))
-  });
+  const data = result.recordset.map(({ totalCount, ...line }) => ({
+    ...line,
+    statusName: importedOrderStatusName(line.status)
+  }));
+  const totalCount = result.recordset[0]?.totalCount || 0;
+  res.json(paginatedResponse(companyCode, data, pagination, totalCount));
 }));
 
 router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res) => {
