@@ -77,6 +77,66 @@ GET /api/imported-orders/BOT-100045/status?company=FLM
 
 For `POST /api/imported-orders`, pass `company` in the JSON body. The same flag is also written to the Imported Orders `Company` field.
 
+The items endpoint prefers the Business Central Item extension field `PDA Item = 1`. For backward compatibility, if the extension SQL table cannot be resolved it falls back to a base-table `PDA Item` column when present, and otherwise behaves like the earlier read endpoint. If the Item extension SQL table cannot be resolved automatically, set:
+
+```env
+SQL_TABLE_ITEM_EXT=CM3$Item$437dbf0e-84ff-417a-965d-ed2bb9650972$ext
+```
+
+The customers endpoint prefers the Business Central Customer extension field `Web Portal = 1`. For backward compatibility, if the extension SQL table cannot be resolved it falls back to a base-table `Web Portal` column when present, and otherwise behaves like the earlier read endpoint. If the Customer extension SQL table cannot be resolved automatically, set:
+
+```env
+SQL_TABLE_CUSTOMER_EXT=CM3$Customer$437dbf0e-84ff-417a-965d-ed2bb9650972$ext
+```
+
+The status endpoints read live order `pdaOrder` from the Business Central Sales Header extension table. Leave this blank for automatic company-aware resolution, or set it only for a single-company diagnostic run:
+
+```env
+SQL_TABLE_SALES_HEADER_EXT=CM3$Sales Header$437dbf0e-84ff-417a-965d-ed2bb9650972$ext
+```
+
+Salespeople route enrichment uses `Salesperson/Purchaser`, optional `Salesperson/Purchaser` `$ext`, `Ship-to Address`, optional `Ship-to Address` `$ext`, and `District Group Code`. Leave these blank for automatic company-aware resolution, or set them only for a single-company diagnostic run:
+
+```env
+SQL_TABLE_SALESPERSON_PURCHASER_EXT=CM3$Salesperson_Purchaser$437dbf0e-84ff-417a-965d-ed2bb9650972$ext
+SQL_TABLE_SHIP_TO_ADDRESS_EXT=CM3$Ship-to Address$437dbf0e-84ff-417a-965d-ed2bb9650972$ext
+SQL_TABLE_DISTRICT_GROUP_CODE=CM3$District Group Code$23dc970e-11e8-4d9b-8613-b7582aec86ba
+```
+
+## Data Access Mode
+
+The gateway can use direct SQL staging, Business Central API pages, or both during transition:
+
+```env
+BC_ACCESS_MODE=both
+```
+
+Allowed values:
+
+```text
+sql  -> current direct SQL route only
+api  -> Business Central API page route only
+both -> both paths are enabled
+```
+
+Business Central API page settings:
+
+```env
+BC_API_BASE_URL=https://nav.farmerschoice.co.ke:8092/BC240
+BC_API_PUBLISHER=fcl
+BC_API_GROUP=bot
+BC_API_VERSION=v1.0
+BC_API_COMPANY_IDS=CM=<company-guid>,FCL=<company-guid>,FLM=<company-guid>,RMK=<company-guid>
+BC_API_USERNAME=<bc-user>
+BC_API_WEB_SERVICE_ACCESS_KEY=<web-service-access-key>
+```
+
+If OAuth is used instead of basic auth/web service key:
+
+```env
+BC_API_BEARER_TOKEN=<access-token>
+```
+
 ## Endpoints
 
 ```text
@@ -89,6 +149,8 @@ GET  /api/items
 GET  /api/salespeople
 GET  /api/imported-orders
 POST /api/imported-orders
+POST /api/bc-api/imported-orders
+GET  /api/bc-api/imported-orders/:externalDocumentNo
 GET  /api/imported-orders/:externalDocumentNo
 GET  /api/imported-orders/:externalDocumentNo/status
 GET  /api/imported-orders/:externalDocumentNo/errors
@@ -293,6 +355,20 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
 
 `GET /api/customers` returns web customers with nested ship-to addresses:
 
+Supported filters:
+
+```http
+GET /api/customers?company=FCL&search=90000
+GET /api/customers?company=FCL&customerNo=90000&customerNo=90031
+GET /api/customers?company=FCL&customerNos=90000,90031
+GET /api/customers?company=FCL&customerNos=["90000","90031"]
+GET /api/customers?company=FCL&name=Web
+GET /api/customers?company=FCL&customerName=Web
+GET /api/customers?company=FCL&shipToCode=NAIROBI
+GET /api/customers?company=FCL&shipTo=NAIROBI
+GET /api/customers?company=FCL&shipToName=Nairobi
+```
+
 ```json
 {
   "data": [
@@ -300,6 +376,7 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
       "id": "90000",
       "customerNo": "90000",
       "name": "Web Customer Ltd",
+      "sector": "HORECA",
       "shipTo": [
         {
           "code": "NAIROBI",
@@ -311,9 +388,69 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
 }
 ```
 
+## Item Payload
+
+`GET /api/items` returns PDA items only and includes barcode values from the Business Central Item extension table:
+
+Supported filters:
+
+```http
+GET /api/items?company=FCL&search=beef
+GET /api/items?company=FCL&itemNo=PDA001&itemNo=PDA002
+GET /api/items?company=FCL&itemNos=PDA001,PDA002
+GET /api/items?company=FCL&itemNos=["PDA001","PDA002"]
+GET /api/items?company=FCL&barcode=616000
+GET /api/items?company=FCL&barcodeNo=6160001234567
+GET /api/items?company=FCL&barcodeText=6160001234567
+GET /api/items?company=FCL&uom=KG
+GET /api/items?company=FCL&baseUnitOfMeasure=KG
+GET /api/items?company=FCL&salesUnitOfMeasure=BAG
+GET /api/items?company=FCL&description=beef
+GET /api/items?company=FCL&barcodeType=0
+```
+
+```json
+{
+  "company": "FCL",
+  "data": [
+    {
+      "id": "PDA001",
+      "itemNo": "PDA001",
+      "description": "PDA Beef Pack",
+      "baseUnitOfMeasure": "KG",
+      "salesUnitOfMeasure": "KG",
+      "barcodeNo": "6160001234567",
+      "barcodeText": "6160001234567",
+      "barcodeType": 0
+    }
+  ]
+}
+```
+
 ## Salespeople Payload
 
-`GET /api/salespeople` returns salespeople with nested contact codes, names, and phone numbers:
+`GET /api/salespeople` returns salespeople with the current route, route M-Pesa till/paybill details, nested contacts, and assigned ship-to addresses:
+
+Supported query params:
+
+```text
+company
+search
+salespersonCode
+salespersonCodes
+salespeople
+id
+name
+salespersonName
+contactCode
+contact
+contactName
+contactPhone
+phone
+limit
+```
+
+`salespersonCode`, `salespersonCodes`, `salespeople`, and `id` accept a single value, repeated query params, comma-separated values, or a JSON array.
 
 ```json
 {
@@ -322,11 +459,41 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
     {
       "salespersonCode": "019",
       "name": "Jane Sales",
+      "currentRoute": "RT001",
+      "route": {
+        "code": "RT001",
+        "districtGroupCode": "RT001",
+        "name": "Nairobi CBD",
+        "paymentType": "Till",
+        "payBill": "123456",
+        "mpesaTill": "123456",
+        "mpesaPaybill": ""
+      },
+      "mpesaTill": "123456",
+      "mpesaPaybill": "",
       "contacts": [
         {
           "code": "CT000123",
           "name": "Jane Sales",
           "phone": "+254700000000"
+        }
+      ],
+      "shipTo": [
+        {
+          "customerNo": "90000",
+          "code": "NAIROBI",
+          "name": "Nairobi Outlet",
+          "route": {
+            "code": "RT001",
+            "districtGroupCode": "RT001",
+            "name": "Nairobi CBD",
+            "paymentType": "Till",
+            "payBill": "123456",
+            "mpesaTill": "123456",
+            "mpesaPaybill": ""
+          },
+          "mpesaTill": "123456",
+          "mpesaPaybill": ""
         }
       ]
     }
@@ -534,6 +701,19 @@ Example conflict response:
 
 ## Data Provider
 
-The API contract is intentionally kept separate from the Business Central access method. The current deployment can read/write through a configured data provider, while the same public endpoints can later be backed by Business Central API pages without changing BOT integrations.
+The API contract is intentionally kept separate from the Business Central access method. The current deployment can read/write through direct SQL or Business Central API pages.
+
+Use `POST /api/imported-orders` for the existing SQL-backed staging path.
+
+Use `POST /api/bc-api/imported-orders` for the BC API-page staging path. It accepts the same payload as the SQL route and writes to these API pages:
+
+```text
+order       -> /api/fcl/bot/v1.0/companies({id})/importedOrders
+invoice     -> /api/fcl/bot/v1.0/companies({id})/importedSalesAL
+returnOrder -> /api/fcl/bot/v1.0/companies({id})/importedReturnOrders
+creditNote  -> /api/fcl/bot/v1.0/companies({id})/importedCreditNotesAL
+```
+
+When `BC_ACCESS_MODE=both`, the API-page import still uses the SQL duplicate scan before posting so it can check staging, live Sales Header, posted Sales Invoice Header, and posted Sales Cr.Memo Header. When `BC_ACCESS_MODE=api`, the API-page import checks only the staging API pages unless additional BC API pages are exposed for live/posted sales documents.
 
 Public integrations should rely only on the documented HTTP endpoints, request payloads, response payloads, company flags, status values, and error codes in this guide.

@@ -96,6 +96,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           id: { type: 'string', example: '90000' },
           customerNo: { type: 'string', example: '90000' },
           name: { type: 'string', example: 'Web Customer Ltd' },
+          sector: { type: 'string', example: 'HORECA' },
           shipTo: {
             type: 'array',
             items: {
@@ -108,11 +109,39 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           }
         }
       },
+      Item: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', example: 'PDA001' },
+          itemNo: { type: 'string', example: 'PDA001' },
+          description: { type: 'string', example: 'PDA Beef Pack' },
+          baseUnitOfMeasure: { type: 'string', example: 'KG' },
+          salesUnitOfMeasure: { type: 'string', example: 'KG' },
+          barcodeNo: { type: 'string', example: '6160001234567' },
+          barcodeText: { type: 'string', example: '6160001234567' },
+          barcodeType: { type: 'integer', example: 0 }
+        }
+      },
       Salesperson: {
         type: 'object',
         properties: {
           salespersonCode: { type: 'string', example: '019' },
           name: { type: 'string', example: 'Jane Sales' },
+          currentRoute: { type: 'string', example: 'RT001' },
+          route: {
+            type: 'object',
+            properties: {
+              code: { type: 'string', example: 'RT001' },
+              districtGroupCode: { type: 'string', example: 'RT001', description: 'Same value as route code; Business Central stores route as District Group Code.' },
+              name: { type: 'string', example: 'Nairobi CBD' },
+              paymentType: { type: 'string', example: 'Till' },
+              payBill: { type: 'string', example: '123456' },
+              mpesaTill: { type: 'string', example: '123456' },
+              mpesaPaybill: { type: 'string', example: '' }
+            }
+          },
+          mpesaTill: { type: 'string', example: '123456' },
+          mpesaPaybill: { type: 'string', example: '' },
           contacts: {
             type: 'array',
             items: {
@@ -121,6 +150,31 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 code: { type: 'string', example: 'CT000123' },
                 name: { type: 'string', example: 'Jane Sales' },
                 phone: { type: 'string', example: '+254700000000' }
+              }
+            }
+          },
+          shipTo: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                customerNo: { type: 'string', example: '90000' },
+                code: { type: 'string', example: 'NAIROBI' },
+                name: { type: 'string', example: 'Nairobi Outlet' },
+                route: {
+                  type: 'object',
+                  properties: {
+                    code: { type: 'string', example: 'RT001' },
+                    districtGroupCode: { type: 'string', example: 'RT001', description: 'Same value as route code; Business Central stores route as District Group Code.' },
+                    name: { type: 'string', example: 'Nairobi CBD' },
+                    paymentType: { type: 'string', example: 'Till' },
+                    payBill: { type: 'string', example: '123456' },
+                    mpesaTill: { type: 'string', example: '123456' },
+                    mpesaPaybill: { type: 'string', example: '' }
+                  }
+                },
+                mpesaTill: { type: 'string', example: '123456' },
+                mpesaPaybill: { type: 'string', example: '' }
               }
             }
           }
@@ -151,6 +205,14 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               importDuplicateRecheckDelayMs: { type: 'integer', example: 5000 },
               limit: { type: 'integer', example: 100 },
               maxLimit: { type: 'integer', example: 1000 }
+            }
+          },
+          access: {
+            type: 'object',
+            properties: {
+              mode: { type: 'string', enum: ['sql', 'api', 'both'], example: 'both' },
+              sqlEnabled: { type: 'boolean', example: true },
+              apiPagesEnabled: { type: 'boolean', example: true }
             }
           }
         }
@@ -235,7 +297,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     documentType: { type: 'integer', example: 1 },
                     status: { type: 'integer', example: 0 },
                     sellToCustomerNo: { type: 'string', example: '90000' },
-                    externalDocumentNo: { type: 'string', example: 'BOT-100045' }
+                    externalDocumentNo: { type: 'string', example: 'BOT-100045' },
+                    pdaOrder: { type: 'boolean', example: false }
                   }
                 }
               },
@@ -399,7 +462,14 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         summary: 'List web customers',
         parameters: [
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
-          { name: 'search', in: 'query', schema: { type: 'string' } },
+          { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Broad text search against customer number or customer name.' },
+          { name: 'customerNo', in: 'query', schema: { type: 'array', items: { type: 'string' } }, style: 'form', explode: true, description: 'Exact customer number filter. Can be repeated: customerNo=A&customerNo=B.' },
+          { name: 'customerNos', in: 'query', schema: { type: 'string' }, description: 'Multiple exact customer numbers as comma-separated text or JSON array text, e.g. A,B or ["A","B"].' },
+          { name: 'name', in: 'query', schema: { type: 'string' }, description: 'Partial customer name match.' },
+          { name: 'customerName', in: 'query', schema: { type: 'string' }, description: 'Alias for name.' },
+          { name: 'shipToCode', in: 'query', schema: { type: 'string' }, description: 'Exact nested ship-to code filter.' },
+          { name: 'shipTo', in: 'query', schema: { type: 'string' }, description: 'Alias for shipToCode.' },
+          { name: 'shipToName', in: 'query', schema: { type: 'string' }, description: 'Partial nested ship-to name match.' },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
         ],
         responses: {
@@ -431,7 +501,23 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
         ],
         responses: {
-          200: { description: 'Filtered item list' }
+          200: {
+            description: 'Filtered PDA item list with barcode fields',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    data: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/Item' }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -441,7 +527,35 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         description: 'Lists salespeople with nested contact codes, names, and phone numbers for the selected company.',
         parameters: [
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
-          { name: 'search', in: 'query', schema: { type: 'string' } },
+          { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Partial match against salesperson code or name.' },
+          {
+            name: 'salespersonCode',
+            in: 'query',
+            schema: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+            style: 'form',
+            explode: true,
+            description: 'One or more salesperson codes. Repeat the parameter, pass a comma-separated list, or pass a JSON array.'
+          },
+          {
+            name: 'salespersonCodes',
+            in: 'query',
+            schema: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+            description: 'Alias for salespersonCode; supports comma-separated or JSON-array values.'
+          },
+          {
+            name: 'salespeople',
+            in: 'query',
+            schema: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+            description: 'Alias for salespersonCode; supports comma-separated or JSON-array values.'
+          },
+          { name: 'id', in: 'query', schema: { type: 'string' }, description: 'Alias for salespersonCode.' },
+          { name: 'name', in: 'query', schema: { type: 'string' }, description: 'Partial match against salesperson name.' },
+          { name: 'salespersonName', in: 'query', schema: { type: 'string' }, description: 'Alias for name.' },
+          { name: 'contactCode', in: 'query', schema: { type: 'string' }, description: 'Only salespeople linked to this contact code.' },
+          { name: 'contact', in: 'query', schema: { type: 'string' }, description: 'Alias for contactCode.' },
+          { name: 'contactName', in: 'query', schema: { type: 'string' }, description: 'Only salespeople with a linked contact name containing this value.' },
+          { name: 'contactPhone', in: 'query', schema: { type: 'string' }, description: 'Only salespeople with a linked contact phone containing this value.' },
+          { name: 'phone', in: 'query', schema: { type: 'string' }, description: 'Alias for contactPhone.' },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } }
         ],
         responses: {
@@ -509,6 +623,46 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           201: { description: 'Imported document staged successfully' },
           400: { description: 'Invalid request' },
           409: { description: 'External document number already exists in imported staging, Sales Header, Sales Invoice Header, or Sales Cr.Memo Header' }
+        }
+      }
+    },
+    '/api/bc-api/imported-orders': {
+      post: {
+        summary: 'Create an imported sales document through BC API pages',
+        description: 'Alternative import path that posts one line at a time to the custom Business Central API pages under /api/fcl/bot/v1.0. Supports the same documentType values as /api/imported-orders: order, invoice, returnOrder, and creditNote. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ImportedOrderRequest' }
+            }
+          }
+        },
+        responses: {
+          201: { description: 'Imported document staged successfully through BC API pages' },
+          400: { description: 'Invalid request' },
+          409: { description: 'External document number already exists in BC staging or, when SQL duplicate checking is enabled, in live/posted sales tables' },
+          503: { description: 'BC API page access is disabled or not configured' }
+        }
+      }
+    },
+    '/api/bc-api/imported-orders/{externalDocumentNo}': {
+      get: {
+        summary: 'Get imported document lines through BC API pages',
+        description: 'Reads the custom Business Central API pages for Imported Orders, Imported SalesAL, Imported Return Orders, and Imported Credit Notes AL using the external document number.',
+        parameters: [
+          {
+            name: 'externalDocumentNo',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          },
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } }
+        ],
+        responses: {
+          200: { description: 'Imported document lines from BC API pages' },
+          404: { description: 'Imported document not found through BC API pages' },
+          503: { description: 'BC API page access is disabled or not configured' }
         }
       }
     },

@@ -1,6 +1,7 @@
 const express = require('express');
 const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, bracket } = require('./db');
 const config = require('./config');
+const bcApi = require('./bcApi');
 
 const router = express.Router();
 
@@ -35,6 +36,50 @@ function optionalString(value) {
   }
 
   return String(value).trim();
+}
+
+function optionalStringList(...values) {
+  const result = [];
+
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') {
+      continue;
+    }
+
+    const rawValues = Array.isArray(value) ? value : [value];
+    for (const rawValue of rawValues) {
+      const text = String(rawValue || '').trim();
+      if (!text) {
+        continue;
+      }
+
+      if (text.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            for (const parsedValue of parsed) {
+              const parsedText = optionalString(parsedValue);
+              if (parsedText) {
+                result.push(parsedText);
+              }
+            }
+            continue;
+          }
+        } catch (err) {
+          // Treat malformed JSON as a plain string below.
+        }
+      }
+
+      for (const part of text.split(',')) {
+        const partText = optionalString(part);
+        if (partText) {
+          result.push(partText);
+        }
+      }
+    }
+  }
+
+  return [...new Set(result)];
 }
 
 function companyFromRequest(req) {
@@ -236,6 +281,38 @@ async function buildColumnAwareWhere(pool, qualifiedTableName, requestedFilters)
     .map((filter) => `${bracket(filter.column)} ${filter.operator} ${filter.value}`);
 
   return filters.length ? filters.join(' AND ') : '1 = 1';
+}
+
+async function getExistingColumnName(pool, qualifiedTableName, logicalColumnName) {
+  const tableInfo = splitQualifiedTableName(qualifiedTableName);
+  const result = await pool.request()
+    .input('schema', sql.NVarChar, tableInfo.schema)
+    .input('table', sql.NVarChar, tableInfo.table)
+    .input('logicalColumnName', sql.NVarChar, logicalColumnName)
+    .input('extensionColumnLike', sql.NVarChar, `${logicalColumnName}$%`)
+    .query(`
+      SELECT TOP 1 COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = @schema
+        AND TABLE_NAME = @table
+        AND (COLUMN_NAME = @logicalColumnName OR COLUMN_NAME LIKE @extensionColumnLike)
+      ORDER BY
+        CASE WHEN COLUMN_NAME = @logicalColumnName THEN 0 ELSE 1 END,
+        COLUMN_NAME
+    `);
+
+  return result.recordset[0]?.COLUMN_NAME || '';
+}
+
+async function requireExistingColumnName(pool, qualifiedTableName, logicalColumnName) {
+  const columnName = await getExistingColumnName(pool, qualifiedTableName, logicalColumnName);
+  if (columnName) {
+    return columnName;
+  }
+
+  const error = new Error(`Could not resolve SQL column '${logicalColumnName}' in ${qualifiedTableName}.`);
+  error.statusCode = 503;
+  throw error;
 }
 
 function delay(ms) {
@@ -459,17 +536,29 @@ function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLine
 }
 
 async function getSalesDocumentsByExternalDocumentNo(pool, tables, externalDocumentNo) {
+  const pdaOrderColumn = tables.salesHeaderExt
+    ? await getExistingColumnName(pool, tables.salesHeaderExt, 'PDA Order')
+    : '';
+  const salesHeaderExtJoin = tables.salesHeaderExt && pdaOrderColumn
+    ? `LEFT JOIN ${tables.salesHeaderExt} she ON she.${bracket('Document Type')} = sh.${bracket('Document Type')} AND she.${bracket('No_')} = sh.${bracket('No_')}`
+    : '';
+  const pdaOrderSelect = tables.salesHeaderExt && pdaOrderColumn
+    ? `CAST(ISNULL(she.${bracket(pdaOrderColumn)}, 0) AS bit)`
+    : `CAST(0 AS bit)`;
+
   const salesHeaderResult = await pool.request()
     .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
     .query(`
       SELECT
-        ${bracket('No_')} AS documentNo,
-        ${bracket('Document Type')} AS documentType,
-        ${bracket('Status')} AS status,
-        ${bracket('Sell-to Customer No_')} AS sellToCustomerNo,
-        ${bracket('External Document No_')} AS externalDocumentNo
-      FROM ${tables.salesHeader}
-      WHERE ${bracket('External Document No_')} = @externalDocumentNo
+        sh.${bracket('No_')} AS documentNo,
+        sh.${bracket('Document Type')} AS documentType,
+        sh.${bracket('Status')} AS status,
+        sh.${bracket('Sell-to Customer No_')} AS sellToCustomerNo,
+        sh.${bracket('External Document No_')} AS externalDocumentNo,
+        ${pdaOrderSelect} AS pdaOrder
+      FROM ${tables.salesHeader} sh
+      ${salesHeaderExtJoin}
+      WHERE sh.${bracket('External Document No_')} = @externalDocumentNo
     `);
 
   const postedInvoiceResult = await pool.request()
@@ -749,6 +838,215 @@ async function getExternalDocumentStatus(pool, tables, externalDocumentNo) {
   );
 }
 
+function buildImportedDocumentFromBody(body, company) {
+  const documentType = documentTypeFromValue(body.documentType);
+  const externalDocumentNo = requireString(body.externalDocumentNo, 'externalDocumentNo');
+  const sellToCustomerNo = requireString(body.sellToCustomerNo, 'sellToCustomerNo');
+  const shipmentDate = toBcDate(body.shipmentDate, 'shipmentDate');
+  const salespersonCode = requireString(body.salespersonCode, 'salespersonCode');
+  const shipToCode = optionalString(body.shipToCode);
+  const shipToName = optionalString(body.shipToName);
+  const customerSpecification = optionalString(body.customerSpecification);
+  const externalOrderUrl = optionalString(body.externalOrderUrl);
+  const pdaOrder = optionalBoolean(body.pdaOrder);
+  const location = optionalString(body.location);
+  const billTo = optionalString(body.billTo);
+  const cuInvoiceNo = optionalString(body.cuInvoiceNo);
+  const cuNo = optionalString(body.cuNo);
+  const signingTime = optionalString(body.signingTime);
+  const returnReasonCode = optionalString(body.returnReasonCode);
+  const originalOrderNo = optionalString(body.originalOrderNo);
+  const taxAppliedDocumentNo = optionalString(body.taxAppliedDocumentNo || body.appliedInvoiceNo || body.originalInvoiceNo);
+
+  if (!Array.isArray(body.lines) || body.lines.length === 0) {
+    const error = new Error('lines must contain at least one order line.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const lines = body.lines.map((line, index) => ({
+    lineNo: Number.isFinite(Number(line.lineNo)) ? Number(line.lineNo) : (index + 1) * 10000,
+    itemNo: requireString(line.itemNo, `lines[${index}].itemNo`),
+    quantity: requiredNumber(line.quantity, `lines[${index}].quantity`),
+    unitOfMeasure: requireString(line.unitOfMeasure, `lines[${index}].unitOfMeasure`),
+    productSpecification: optionalString(line.productSpecification ?? body.productSpecification),
+    location: optionalString(line.location || location),
+    unitPrice: ['invoice', 'creditNote'].includes(documentType) ? requiredNumber(line.unitPrice, `lines[${index}].unitPrice`) : optionalNumber(line.unitPrice),
+    lineAmount: optionalNumber(line.lineAmount, optionalNumber(line.quantity) * optionalNumber(line.unitPrice)),
+    returnReasonCode: optionalString(line.returnReasonCode || returnReasonCode),
+    originalOrderNo: optionalString(line.originalOrderNo || originalOrderNo)
+  }));
+
+  return {
+    company,
+    documentType,
+    externalDocumentNo,
+    sellToCustomerNo,
+    shipmentDate,
+    salespersonCode,
+    shipToCode,
+    shipToName,
+    customerSpecification,
+    externalOrderUrl,
+    pdaOrder,
+    location,
+    billTo,
+    cuInvoiceNo,
+    cuNo,
+    signingTime,
+    returnReasonCode,
+    originalOrderNo,
+    taxAppliedDocumentNo,
+    lines,
+    expectedLineCount: lines.length,
+    totalHeaderQty: optionalNumber(body.totalHeaderQty, lines.reduce((total, line) => total + line.quantity, 0)),
+    totalHeaderAmount: optionalNumber(body.totalHeaderAmount, lines.reduce((total, line) => total + line.lineAmount, 0))
+  };
+}
+
+function toBcApiLinePayload(document, line) {
+  if (document.documentType === 'creditNote') {
+    return {
+      custNo: document.sellToCustomerNo,
+      documentDate: document.shipmentDate,
+      spCode: document.salespersonCode,
+      shipToCode: document.shipToCode,
+      extDocNo: document.externalDocumentNo,
+      itemNo: line.itemNo,
+      qty: line.quantity,
+      location: line.location,
+      suom: line.unitOfMeasure,
+      unitPrice: line.unitPrice,
+      shipToName: document.shipToName,
+      totalHeaderAmount: document.totalHeaderAmount,
+      lineAmount: line.lineAmount,
+      totalHeaderQty: document.totalHeaderQty,
+      lineNo: line.lineNo,
+      billTo: document.billTo,
+      expectedLineCount: document.expectedLineCount,
+      taxAppliedDocumentNo: document.taxAppliedDocumentNo,
+      returnReasonCode: line.returnReasonCode
+    };
+  }
+
+  if (document.documentType === 'invoice') {
+    return {
+      custNo: document.sellToCustomerNo,
+      documentDate: document.shipmentDate,
+      spCode: document.salespersonCode,
+      shipToCode: document.shipToCode,
+      extDocNo: document.externalDocumentNo,
+      itemNo: line.itemNo,
+      qty: line.quantity,
+      location: line.location,
+      suom: line.unitOfMeasure,
+      unitPrice: line.unitPrice,
+      shipToName: document.shipToName,
+      totalHeaderAmount: document.totalHeaderAmount,
+      lineAmount: line.lineAmount,
+      totalHeaderQty: document.totalHeaderQty,
+      lineNo: line.lineNo,
+      billTo: document.billTo,
+      cuInvoiceNo: document.cuInvoiceNo,
+      cuNo: document.cuNo,
+      signingTime: document.signingTime,
+      expectedLineCount: document.expectedLineCount
+    };
+  }
+
+  if (document.documentType === 'returnOrder') {
+    return {
+      sellToCustomerNo: document.sellToCustomerNo,
+      shipmentDate: document.shipmentDate,
+      salespersonCode: document.salespersonCode,
+      shipToCode: document.shipToCode,
+      externalDocumentNo: document.externalDocumentNo,
+      itemNo: line.itemNo,
+      quantity: line.quantity,
+      unitOfMeasure: line.unitOfMeasure,
+      shipToName: document.shipToName,
+      lineNo: line.lineNo,
+      customerSpecification: document.customerSpecification,
+      company: document.company.code,
+      returnReasonCode: line.returnReasonCode,
+      originalOrderNo: line.originalOrderNo
+    };
+  }
+
+  return {
+    sellToCustomerNo: document.sellToCustomerNo,
+    shipmentDate: document.shipmentDate,
+    salespersonCode: document.salespersonCode,
+    shipToCode: document.shipToCode,
+    externalDocumentNo: document.externalDocumentNo,
+    itemNo: line.itemNo,
+    quantity: line.quantity,
+    unitOfMeasure: line.unitOfMeasure,
+    shipToName: document.shipToName,
+    lineNo: line.lineNo,
+    customerSpecification: document.customerSpecification,
+    company: document.company.code,
+    externalOrderUrl: document.externalOrderUrl,
+    productSpecification: line.productSpecification,
+    expectedLineCount: document.expectedLineCount,
+    pdaOrder: document.pdaOrder
+  };
+}
+
+function bcApiEntitySetForDocumentType(documentType) {
+  if (documentType === 'invoice') {
+    return 'importedSalesAL';
+  }
+
+  if (documentType === 'returnOrder') {
+    return 'importedReturnOrders';
+  }
+
+  if (documentType === 'creditNote') {
+    return 'importedCreditNotesAL';
+  }
+
+  return 'importedOrders';
+}
+
+async function getBcApiImportedDocumentLines(companyCode, externalDocumentNo) {
+  const [importedOrders, importedSalesAL, importedReturnOrders, importedCreditNotesAL] = await Promise.all([
+    bcApi.getLinesByExternalDocumentNo('importedOrders', companyCode, 'externalDocumentNo', externalDocumentNo),
+    bcApi.getLinesByExternalDocumentNo('importedSalesAL', companyCode, 'extDocNo', externalDocumentNo),
+    bcApi.getLinesByExternalDocumentNo('importedReturnOrders', companyCode, 'externalDocumentNo', externalDocumentNo),
+    bcApi.getLinesByExternalDocumentNo('importedCreditNotesAL', companyCode, 'extDocNo', externalDocumentNo)
+  ]);
+
+  return {
+    importedOrders,
+    importedSalesAL,
+    importedReturnOrders,
+    importedCreditNotesAL
+  };
+}
+
+async function assertBcApiExternalDocumentNotInStaging(companyCode, externalDocumentNo) {
+  const matches = await getBcApiImportedDocumentLines(companyCode, externalDocumentNo);
+  const totalMatches = Object.values(matches).reduce((total, lines) => total + lines.length, 0);
+  if (!totalMatches) {
+    return;
+  }
+
+  const error = new Error('External document number already exists in Business Central staging API pages.');
+  error.statusCode = 409;
+  error.details = {
+    company: companyCode,
+    externalDocumentNo,
+    matches: Object.entries(matches)
+      .filter(([, lines]) => lines.length)
+      .map(([sourceTable, lines]) => ({
+        sourceTable,
+        count: lines.length
+      }))
+  };
+  throw error;
+}
+
 function addImportedOrderFilter(filters, request, query, queryName, sqlType, columnName, parameterName = queryName) {
   const value = optionalString(query[queryName]);
   if (!value) {
@@ -788,7 +1086,12 @@ router.get('/status', asyncHandler(async (req, res) => {
       code,
       prefix: `${config.companies.prefixes[code]}$`
     })),
-  defaults: {
+    access: {
+      mode: config.access.mode,
+      sqlEnabled: config.access.sqlEnabled,
+      apiPagesEnabled: config.access.apiPagesEnabled
+    },
+    defaults: {
       importedOrderStatus: config.defaults.importedOrderStatus,
       importedOrderStatusName: importedOrderStatusName(config.defaults.importedOrderStatus),
       limit: config.defaults.limit,
@@ -849,36 +1152,95 @@ router.get('/:company/status/:externalDocumentNo', asyncHandler(async (req, res)
 router.get('/customers', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
-  const { customer, shipToAddress } = await getTables(companyCode);
+  const { customer, customerExt, shipToAddress } = await getTables(companyCode);
   const limit = limitFromQuery(req.query.limit);
   const search = optionalString(req.query.search);
 
+  const customerExtWebPortalColumn = customerExt
+    ? await getExistingColumnName(pool, customerExt, 'Web Portal')
+    : '';
+  const customerBaseWebPortalColumn = customerExtWebPortalColumn
+    ? ''
+    : await getExistingColumnName(pool, customer, 'Web Portal');
+  const customerExtSectorColumn = customerExt
+    ? await getExistingColumnName(pool, customerExt, 'Sector')
+    : '';
+  const customerBaseSectorColumn = customerExtSectorColumn
+    ? ''
+    : await getExistingColumnName(pool, customer, 'Sector');
+  const customerExtJoin = customerExtWebPortalColumn || customerExtSectorColumn
+    ? `LEFT JOIN ${customerExt} ce ON ce.${bracket('No_')} = c.${bracket('No_')}`
+    : '';
+  const sectorExpression = customerExtSectorColumn
+    ? `ce.${bracket(customerExtSectorColumn)}`
+    : customerBaseSectorColumn
+      ? `c.${bracket(customerBaseSectorColumn)}`
+      : `CAST('' AS nvarchar(20))`;
+  const webPortalClause = customerExtWebPortalColumn
+    ? `AND ce.${bracket(customerExtWebPortalColumn)} = 1`
+    : customerBaseWebPortalColumn
+      ? `AND c.${bracket(customerBaseWebPortalColumn)} = 1`
+      : '';
+  const blockedColumn = await getExistingColumnName(pool, customer, 'Blocked');
+  const blockedClause = blockedColumn ? `AND c.${bracket(blockedColumn)} = 0` : '';
   const request = pool.request()
     .input('limit', sql.Int, limit)
     .input('search', sql.NVarChar, `%${search}%`);
-  const customerWhere = await buildColumnAwareWhere(pool, customer, [
-    { column: 'Web Portal', operator: '=', value: '1' },
-    { column: 'Blocked', operator: '=', value: '0' }
-  ]);
+  const filters = [];
+  const customerNos = optionalStringList(req.query.customerNo, req.query.customerNos, req.query.customers, req.query.id);
+  const name = optionalString(req.query.name || req.query.customerName);
+  const shipToCode = optionalString(req.query.shipToCode || req.query.shipTo);
+  const shipToName = optionalString(req.query.shipToName);
+
+  if (customerNos.length) {
+    const customerNoParams = customerNos.map((customerNo, index) => {
+      const parameterName = `customerNo${index}`;
+      request.input(parameterName, sql.NVarChar, customerNo);
+      return `@${parameterName}`;
+    });
+    filters.push(`c.${bracket('No_')} IN (${customerNoParams.join(', ')})`);
+  }
+
+  if (name) {
+    request.input('customerName', sql.NVarChar, `%${name}%`);
+    filters.push(`c.${bracket('Name')} LIKE @customerName`);
+  }
+
+  if (shipToCode) {
+    request.input('shipToCode', sql.NVarChar, shipToCode);
+    filters.push(`EXISTS (SELECT 1 FROM ${shipToAddress} staFilter WHERE staFilter.${bracket('Customer No_')} = c.${bracket('No_')} AND staFilter.${bracket('Code')} = @shipToCode)`);
+  }
+
+  if (shipToName) {
+    request.input('shipToName', sql.NVarChar, `%${shipToName}%`);
+    filters.push(`EXISTS (SELECT 1 FROM ${shipToAddress} staNameFilter WHERE staNameFilter.${bracket('Customer No_')} = c.${bracket('No_')} AND staNameFilter.${bracket('Name')} LIKE @shipToName)`);
+  }
 
   const searchClause = search
-    ? `AND (${bracket('No_')} LIKE @search OR ${bracket('Name')} LIKE @search)`
+    ? `AND (c.${bracket('No_')} LIKE @search OR c.${bracket('Name')} LIKE @search)`
     : '';
+  const filterClause = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
   const result = await request.query(`
     WITH FilteredCustomers AS (
       SELECT TOP (@limit)
-        ${bracket('No_')} AS customerNo,
-        ${bracket('Name')} AS name
-      FROM ${customer}
-      WHERE ${customerWhere}
+        c.${bracket('No_')} AS customerNo,
+        c.${bracket('Name')} AS name,
+        ${sectorExpression} AS sector
+      FROM ${customer} c
+      ${customerExtJoin}
+      WHERE 1 = 1
+        ${webPortalClause}
+        ${blockedClause}
         ${searchClause}
-      ORDER BY ${bracket('No_')}
+        ${filterClause}
+      ORDER BY c.${bracket('No_')}
     )
     SELECT
       fc.customerNo AS id,
       fc.customerNo,
       fc.name,
+      fc.sector,
       sta.${bracket('Code')} AS shipToCode,
       sta.${bracket('Name')} AS shipToName
     FROM FilteredCustomers fc
@@ -896,6 +1258,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
         id: row.customerNo,
         customerNo: row.customerNo,
         name: row.name,
+        sector: row.sector || '',
         shipTo: []
       };
       byCustomerNo.set(row.customerNo, customerRow);
@@ -916,44 +1279,280 @@ router.get('/customers', asyncHandler(async (req, res) => {
 router.get('/items', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
-  const { item } = await getTables(companyCode);
+  const { item, itemExt } = await getTables(companyCode);
   const limit = limitFromQuery(req.query.limit);
   const search = optionalString(req.query.search);
 
+  const itemExtPdaItemColumn = itemExt
+    ? await getExistingColumnName(pool, itemExt, 'PDA Item')
+    : '';
+  const itemBasePdaItemColumn = itemExtPdaItemColumn
+    ? ''
+    : await getExistingColumnName(pool, item, 'PDA Item');
+  const itemExtJoin = itemExtPdaItemColumn
+    ? `INNER JOIN ${itemExt} ie ON ie.${bracket('No_')} = i.${bracket('No_')}`
+    : '';
+  const pdaItemClause = itemExtPdaItemColumn
+    ? `AND ie.${bracket(itemExtPdaItemColumn)} = 1`
+    : itemBasePdaItemColumn
+      ? `AND i.${bracket(itemBasePdaItemColumn)} = 1`
+      : '';
+  const barcodeNoExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code No_') : '';
+  const barcodeTextExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code Text') : '';
+  const barcodeTypeExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code Type') : '';
+  const barcodeNoBaseColumn = barcodeNoExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code No_');
+  const barcodeTextBaseColumn = barcodeTextExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code Text');
+  const barcodeTypeBaseColumn = barcodeTypeExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code Type');
+  const barcodeNoColumn = barcodeNoExtColumn || barcodeNoBaseColumn;
+  const barcodeTextColumn = barcodeTextExtColumn || barcodeTextBaseColumn;
+  const barcodeTypeColumn = barcodeTypeExtColumn || barcodeTypeBaseColumn;
+  const barcodeNoAlias = barcodeNoExtColumn ? 'ie' : 'i';
+  const barcodeTextAlias = barcodeTextExtColumn ? 'ie' : 'i';
+  const barcodeTypeAlias = barcodeTypeExtColumn ? 'ie' : 'i';
+  const blockedColumn = await getExistingColumnName(pool, item, 'Blocked');
+  const blockedClause = blockedColumn ? `AND i.${bracket(blockedColumn)} = 0` : '';
+  const barcodeNoSelect = barcodeNoColumn ? `${barcodeNoAlias}.${bracket(barcodeNoColumn)}` : `CAST('' AS nvarchar(100))`;
+  const barcodeTextSelect = barcodeTextColumn ? `${barcodeTextAlias}.${bracket(barcodeTextColumn)}` : `CAST('' AS nvarchar(250))`;
+  const barcodeTypeSelect = barcodeTypeColumn ? `${barcodeTypeAlias}.${bracket(barcodeTypeColumn)}` : `CAST(0 AS int)`;
   const request = pool.request()
     .input('limit', sql.Int, limit)
     .input('search', sql.NVarChar, `%${search}%`);
-  const itemWhere = await buildColumnAwareWhere(pool, item, [
-    { column: 'PDA Item', operator: '=', value: '1' },
-    { column: 'Blocked', operator: '=', value: '0' }
-  ]);
+  const filters = [];
+  const itemNos = optionalStringList(req.query.itemNo, req.query.itemNos, req.query.items, req.query.id);
+  const description = optionalString(req.query.description);
+  const uom = optionalString(req.query.uom || req.query.unitOfMeasure);
+  const baseUnitOfMeasure = optionalString(req.query.baseUnitOfMeasure);
+  const salesUnitOfMeasure = optionalString(req.query.salesUnitOfMeasure);
+  const barcode = optionalString(req.query.barcode);
+  const barcodeNo = optionalString(req.query.barcodeNo);
+  const barcodeText = optionalString(req.query.barcodeText);
+  const barcodeType = optionalString(req.query.barcodeType);
+
+  if (itemNos.length) {
+    const itemNoParams = itemNos.map((itemNo, index) => {
+      const parameterName = `itemNo${index}`;
+      request.input(parameterName, sql.NVarChar, itemNo);
+      return `@${parameterName}`;
+    });
+    filters.push(`i.${bracket('No_')} IN (${itemNoParams.join(', ')})`);
+  }
+
+  if (description) {
+    request.input('description', sql.NVarChar, `%${description}%`);
+    filters.push(`i.${bracket('Description')} LIKE @description`);
+  }
+
+  if (uom) {
+    request.input('uom', sql.NVarChar, uom);
+    filters.push(`(i.${bracket('Base Unit of Measure')} = @uom OR i.${bracket('Sales Unit of Measure')} = @uom)`);
+  }
+
+  if (baseUnitOfMeasure) {
+    request.input('baseUnitOfMeasure', sql.NVarChar, baseUnitOfMeasure);
+    filters.push(`i.${bracket('Base Unit of Measure')} = @baseUnitOfMeasure`);
+  }
+
+  if (salesUnitOfMeasure) {
+    request.input('salesUnitOfMeasure', sql.NVarChar, salesUnitOfMeasure);
+    filters.push(`i.${bracket('Sales Unit of Measure')} = @salesUnitOfMeasure`);
+  }
+
+  if (barcode) {
+    if (!barcodeNoColumn && !barcodeTextColumn) {
+      const error = new Error('Barcode filtering is not available because the Item extension barcode columns could not be resolved.');
+      error.statusCode = 503;
+      throw error;
+    }
+
+    request.input('barcode', sql.NVarChar, `%${barcode}%`);
+    filters.push(`(${[
+      barcodeNoColumn ? `${barcodeNoAlias}.${bracket(barcodeNoColumn)} LIKE @barcode` : '',
+      barcodeTextColumn ? `${barcodeTextAlias}.${bracket(barcodeTextColumn)} LIKE @barcode` : ''
+    ].filter(Boolean).join(' OR ')})`);
+  }
+
+  if (barcodeNo) {
+    if (!barcodeNoColumn) {
+      const error = new Error('barcodeNo filtering is not available because Bar Code No. could not be resolved on the Item extension table.');
+      error.statusCode = 503;
+      throw error;
+    }
+
+    request.input('barcodeNo', sql.NVarChar, `%${barcodeNo}%`);
+    filters.push(`${barcodeNoAlias}.${bracket(barcodeNoColumn)} LIKE @barcodeNo`);
+  }
+
+  if (barcodeText) {
+    if (!barcodeTextColumn) {
+      const error = new Error('barcodeText filtering is not available because Bar Code Text could not be resolved on the Item extension table.');
+      error.statusCode = 503;
+      throw error;
+    }
+
+    request.input('barcodeText', sql.NVarChar, `%${barcodeText}%`);
+    filters.push(`${barcodeTextAlias}.${bracket(barcodeTextColumn)} LIKE @barcodeText`);
+  }
+
+  if (barcodeType) {
+    if (!barcodeTypeColumn) {
+      const error = new Error('barcodeType filtering is not available because Bar Code Type could not be resolved on the Item extension table.');
+      error.statusCode = 503;
+      throw error;
+    }
+
+    const barcodeTypeValue = Number.parseInt(barcodeType, 10);
+    if (!Number.isInteger(barcodeTypeValue)) {
+      const error = new Error('barcodeType must be an integer.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    request.input('barcodeType', sql.Int, barcodeTypeValue);
+    filters.push(`${barcodeTypeAlias}.${bracket(barcodeTypeColumn)} = @barcodeType`);
+  }
 
   const searchClause = search
-    ? `AND (${bracket('No_')} LIKE @search OR ${bracket('Description')} LIKE @search)`
+    ? `AND (i.${bracket('No_')} LIKE @search OR i.${bracket('Description')} LIKE @search)`
     : '';
+  const filterClause = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
   const result = await request.query(`
     SELECT TOP (@limit)
-      ${bracket('No_')} AS id,
-      ${bracket('No_')} AS itemNo,
-      ${bracket('Description')} AS description,
-      ${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
-      ${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure
-    FROM ${item}
-    WHERE ${itemWhere}
+      i.${bracket('No_')} AS id,
+      i.${bracket('No_')} AS itemNo,
+      i.${bracket('Description')} AS description,
+      i.${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
+      i.${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure,
+      ${barcodeNoSelect} AS barcodeNo,
+      ${barcodeTextSelect} AS barcodeText,
+      ${barcodeTypeSelect} AS barcodeType
+    FROM ${item} i
+    ${itemExtJoin}
+    WHERE 1 = 1
+      ${pdaItemClause}
+      ${blockedClause}
       ${searchClause}
-    ORDER BY ${bracket('No_')}
+      ${filterClause}
+    ORDER BY i.${bracket('No_')}
   `);
 
   res.json({ company: getCompanyConfig(companyCode).code, data: result.recordset });
 }));
 
+function routePaymentTypeName(routeType) {
+  if (routeType === null || routeType === undefined || routeType === '') {
+    return '';
+  }
+
+  const numericRouteType = Number(routeType);
+  if (numericRouteType === 0) {
+    return 'Till';
+  }
+  if (numericRouteType === 1) {
+    return 'Paybill';
+  }
+
+  return String(routeType);
+}
+
+async function getSalespersonShipToRows(pool, { salespersonCodes, shipToAddress, shipToAddressExt, districtGroupCode }) {
+  if (!salespersonCodes.length) {
+    return [];
+  }
+
+  const shipToColumns = await getExistingColumns(pool, shipToAddress, [
+    'Customer No_',
+    'Code',
+    'Name',
+    'Salesperson Code',
+    'Route Code'
+  ]);
+  if (!shipToColumns.has('Salesperson Code')) {
+    return [];
+  }
+
+  const routeCodeExtColumn = shipToAddressExt
+    ? await getExistingColumnName(pool, shipToAddressExt, 'Route Code')
+    : '';
+  const routeCodeBaseColumn = routeCodeExtColumn
+    ? ''
+    : shipToColumns.has('Route Code') ? 'Route Code' : '';
+  const routeCodeAlias = routeCodeExtColumn ? 'ste' : 'sta';
+  const routeCodeColumn = routeCodeExtColumn || routeCodeBaseColumn;
+  const routeCodeExpression = routeCodeColumn
+    ? `${routeCodeAlias}.${bracket(routeCodeColumn)}`
+    : `CAST('' AS nvarchar(100))`;
+  const shipToExtJoin = routeCodeExtColumn
+    ? `LEFT JOIN ${shipToAddressExt} ste
+      ON ste.${bracket('Customer No_')} = sta.${bracket('Customer No_')}
+      AND ste.${bracket('Code')} = sta.${bracket('Code')}`
+    : '';
+  const routeColumns = districtGroupCode
+    ? await getExistingColumns(pool, districtGroupCode, ['Code', 'Description', 'Pay Bill', 'Type'])
+    : new Set();
+  const canJoinRoute = districtGroupCode && routeCodeColumn && routeColumns.has('Code');
+  const routeJoin = canJoinRoute
+    ? `LEFT JOIN ${districtGroupCode} rt ON rt.${bracket('Code')} = ${routeCodeExpression}`
+    : '';
+  const routeNameSelect = canJoinRoute && routeColumns.has('Description')
+    ? `rt.${bracket('Description')} AS routeName`
+    : `CAST('' AS nvarchar(100)) AS routeName`;
+  const routePayBillSelect = canJoinRoute && routeColumns.has('Pay Bill')
+    ? `rt.${bracket('Pay Bill')} AS routePayBill`
+    : `CAST('' AS nvarchar(100)) AS routePayBill`;
+  const routeTypeSelect = canJoinRoute && routeColumns.has('Type')
+    ? `rt.${bracket('Type')} AS routeType`
+    : `CAST(NULL AS int) AS routeType`;
+  const request = pool.request();
+  const placeholders = salespersonCodes.map((salespersonCode, index) => {
+    const param = `shipToSalespersonCode${index}`;
+    request.input(param, sql.NVarChar, salespersonCode);
+    return `@${param}`;
+  });
+
+  const result = await request.query(`
+    SELECT
+      sta.${bracket('Salesperson Code')} AS salespersonCode,
+      sta.${bracket('Customer No_')} AS customerNo,
+      sta.${bracket('Code')} AS shipToCode,
+      sta.${bracket('Name')} AS shipToName,
+      ${routeCodeExpression} AS routeCode,
+      ${routeNameSelect},
+      ${routePayBillSelect},
+      ${routeTypeSelect}
+    FROM ${shipToAddress} sta
+    ${shipToExtJoin}
+    ${routeJoin}
+    WHERE sta.${bracket('Salesperson Code')} IN (${placeholders.join(', ')})
+    ORDER BY sta.${bracket('Salesperson Code')}, sta.${bracket('Customer No_')}, sta.${bracket('Code')}
+  `);
+
+  return result.recordset;
+}
+
 router.get('/salespeople', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
-  const { salespersonPurchaser, contact } = await getTables(companyCode);
+  const {
+    salespersonPurchaser,
+    salespersonPurchaserExt,
+    contact,
+    shipToAddress,
+    shipToAddressExt,
+    districtGroupCode
+  } = await getTables(companyCode);
   const limit = limitFromQuery(req.query.limit);
   const search = optionalString(req.query.search);
+  const salespersonCodes = optionalStringList(
+    req.query.salespersonCode,
+    req.query.salespersonCodes,
+    req.query.salespeople,
+    req.query.id
+  );
+  const salespersonName = optionalString(req.query.salespersonName || req.query.name);
+  const contactCode = optionalString(req.query.contactCode || req.query.contact);
+  const contactName = optionalString(req.query.contactName);
+  const contactPhone = optionalString(req.query.contactPhone || req.query.phone);
 
   const request = pool.request()
     .input('limit', sql.Int, limit)
@@ -972,23 +1571,129 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
   const contactSelect = canJoinContacts
     ? `${contactCodeSelect}, ct.${bracket('Name')} AS contactName, ${contactPhoneSelect}`
     : `CAST('' AS nvarchar(20)) AS contactCode, CAST(NULL AS nvarchar(100)) AS contactName, CAST('' AS nvarchar(30)) AS contactPhone`;
+  const currentRouteExtColumn = salespersonPurchaserExt
+    ? await getExistingColumnName(pool, salespersonPurchaserExt, 'Current Route')
+    : '';
+  const currentRouteBaseColumn = currentRouteExtColumn
+    ? ''
+    : await getExistingColumnName(pool, salespersonPurchaser, 'Current Route');
+  const currentRouteAlias = currentRouteExtColumn ? 'spe' : 'spBase';
+  const currentRouteColumn = currentRouteExtColumn || currentRouteBaseColumn;
+  const currentRouteExpression = currentRouteColumn
+    ? `${currentRouteAlias}.${bracket(currentRouteColumn)}`
+    : `CAST('' AS nvarchar(100))`;
+  const salespersonExtJoin = currentRouteExtColumn
+    ? `LEFT JOIN ${salespersonPurchaserExt} spe ON spe.${bracket('Code')} = spBase.${bracket('Code')}`
+    : '';
+  const routeColumns = districtGroupCode
+    ? await getExistingColumns(pool, districtGroupCode, ['Code', 'Description', 'Pay Bill', 'Type'])
+    : new Set();
+  const canJoinRoute = districtGroupCode && currentRouteColumn && routeColumns.has('Code');
+  const routeJoin = canJoinRoute
+    ? `LEFT JOIN ${districtGroupCode} rt ON rt.${bracket('Code')} = ${currentRouteExpression}`
+    : '';
+  const routeNameSelect = canJoinRoute && routeColumns.has('Description')
+    ? `rt.${bracket('Description')} AS routeName`
+    : `CAST('' AS nvarchar(100)) AS routeName`;
+  const routePayBillSelect = canJoinRoute && routeColumns.has('Pay Bill')
+    ? `rt.${bracket('Pay Bill')} AS routePayBill`
+    : `CAST('' AS nvarchar(100)) AS routePayBill`;
+  const routeTypeSelect = canJoinRoute && routeColumns.has('Type')
+    ? `rt.${bracket('Type')} AS routeType`
+    : `CAST(NULL AS int) AS routeType`;
 
-  const searchClause = search
-    ? `WHERE (${bracket('Code')} LIKE @search OR ${bracket('Name')} LIKE @search)`
+  const filters = [];
+  if (search) {
+    filters.push(`(spBase.${bracket('Code')} LIKE @search OR spBase.${bracket('Name')} LIKE @search)`);
+  }
+
+  if (salespersonCodes.length > 0) {
+    const placeholders = salespersonCodes.map((value, index) => {
+      const param = `salespersonCode${index}`;
+      request.input(param, sql.NVarChar, value);
+      return `@${param}`;
+    });
+    filters.push(`spBase.${bracket('Code')} IN (${placeholders.join(', ')})`);
+  }
+
+  if (salespersonName) {
+    request.input('salespersonName', sql.NVarChar, `%${salespersonName}%`);
+    filters.push(`spBase.${bracket('Name')} LIKE @salespersonName`);
+  }
+
+  const contactFilterRequested = contactCode || contactName || contactPhone;
+  if (contactFilterRequested && !canJoinContacts) {
+    const err = new Error('Salesperson contact filters are not available because Contact table columns could not be resolved.');
+    err.statusCode = 503;
+    throw err;
+  }
+
+  if (contactCode) {
+    if (!contactColumns.has('No_')) {
+      const err = new Error('contactCode filter is not available because Contact No_ column could not be resolved.');
+      err.statusCode = 503;
+      throw err;
+    }
+    request.input('contactCode', sql.NVarChar, contactCode);
+    filters.push(`EXISTS (
+      SELECT 1
+      FROM ${contact} ctFilter
+      WHERE ctFilter.${bracket('Salesperson Code')} = spBase.${bracket('Code')}
+        AND ctFilter.${bracket('No_')} = @contactCode
+    )`);
+  }
+
+  if (contactName) {
+    request.input('contactName', sql.NVarChar, `%${contactName}%`);
+    filters.push(`EXISTS (
+      SELECT 1
+      FROM ${contact} ctFilter
+      WHERE ctFilter.${bracket('Salesperson Code')} = spBase.${bracket('Code')}
+        AND ctFilter.${bracket('Name')} LIKE @contactName
+    )`);
+  }
+
+  if (contactPhone) {
+    if (!contactColumns.has('Phone No_')) {
+      const err = new Error('contactPhone filter is not available because Contact Phone No_ column could not be resolved.');
+      err.statusCode = 503;
+      throw err;
+    }
+    request.input('contactPhone', sql.NVarChar, `%${contactPhone}%`);
+    filters.push(`EXISTS (
+      SELECT 1
+      FROM ${contact} ctFilter
+      WHERE ctFilter.${bracket('Salesperson Code')} = spBase.${bracket('Code')}
+        AND ctFilter.${bracket('Phone No_')} LIKE @contactPhone
+    )`);
+  }
+
+  const filterClause = filters.length > 0
+    ? `WHERE ${filters.join('\n        AND ')}`
     : '';
 
   const result = await request.query(`
     WITH FilteredSalespeople AS (
       SELECT TOP (@limit)
-        ${bracket('Code')} AS salespersonCode,
-        ${bracket('Name')} AS name
-      FROM ${salespersonPurchaser}
-      ${searchClause}
-      ORDER BY ${bracket('Code')}
+        spBase.${bracket('Code')} AS salespersonCode,
+        spBase.${bracket('Name')} AS name,
+        ${currentRouteExpression} AS currentRoute,
+        ${routeNameSelect},
+        ${routePayBillSelect},
+        ${routeTypeSelect}
+      FROM ${salespersonPurchaser} spBase
+      ${salespersonExtJoin}
+      ${routeJoin}
+      ${filterClause}
+      ORDER BY spBase.${bracket('Code')}
     )
     SELECT
       sp.salespersonCode,
       sp.name,
+      sp.currentRoute,
+      sp.routeName,
+      sp.routePayBill,
+      sp.routeType,
       ${contactSelect}
     FROM FilteredSalespeople sp
     ${contactJoin}
@@ -1000,10 +1705,26 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
   for (const row of result.recordset) {
     let salesperson = bySalespersonCode.get(row.salespersonCode);
     if (!salesperson) {
+      const paymentType = routePaymentTypeName(row.routeType);
+      const mpesaTill = paymentType === 'Till' ? row.routePayBill || '' : '';
+      const mpesaPaybill = paymentType === 'Paybill' ? row.routePayBill || '' : '';
       salesperson = {
         salespersonCode: row.salespersonCode,
         name: row.name,
-        contacts: []
+        currentRoute: row.currentRoute || '',
+        route: {
+          code: row.currentRoute || '',
+          districtGroupCode: row.currentRoute || '',
+          name: row.routeName || '',
+          paymentType,
+          payBill: row.routePayBill || '',
+          mpesaTill,
+          mpesaPaybill
+        },
+        mpesaTill,
+        mpesaPaybill,
+        contacts: [],
+        shipTo: []
       };
       bySalespersonCode.set(row.salespersonCode, salesperson);
       salespeople.push(salesperson);
@@ -1014,6 +1735,42 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
         code: row.contactCode || '',
         name: row.contactName,
         phone: row.contactPhone || ''
+      });
+    }
+  }
+
+  if (salespeople.length > 0) {
+    const shipToRows = await getSalespersonShipToRows(pool, {
+      salespersonCodes: salespeople.map((salesperson) => salesperson.salespersonCode),
+      shipToAddress,
+      shipToAddressExt,
+      districtGroupCode
+    });
+
+    for (const row of shipToRows) {
+      const salesperson = bySalespersonCode.get(row.salespersonCode);
+      if (!salesperson) {
+        continue;
+      }
+
+      const paymentType = routePaymentTypeName(row.routeType);
+      const mpesaTill = paymentType === 'Till' ? row.routePayBill || '' : '';
+      const mpesaPaybill = paymentType === 'Paybill' ? row.routePayBill || '' : '';
+      salesperson.shipTo.push({
+        customerNo: row.customerNo || '',
+        code: row.shipToCode || '',
+        name: row.shipToName || '',
+        route: {
+          code: row.routeCode || '',
+          districtGroupCode: row.routeCode || '',
+          name: row.routeName || '',
+          paymentType,
+          payBill: row.routePayBill || '',
+          mpesaTill,
+          mpesaPaybill
+        },
+        mpesaTill,
+        mpesaPaybill
       });
     }
   }
@@ -1203,6 +1960,62 @@ router.get('/imported-orders/:externalDocumentNo/errors', asyncHandler(async (re
     expectedLineCount: importedLines[0]?.expectedLineCount || importedSalesLines[0]?.expectedLineCount || importedCreditNoteLines[0]?.expectedLineCount || 0,
     errorCount: errors.length,
     errors
+  });
+}));
+
+router.get('/bc-api/imported-orders/:externalDocumentNo', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  const company = getCompanyConfig(companyCode);
+  const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
+  const lines = await getBcApiImportedDocumentLines(company.code, externalDocumentNo);
+  const lineCount = Object.values(lines).reduce((total, stagedLines) => total + stagedLines.length, 0);
+
+  if (!lineCount) {
+    return res.status(404).json({ error: 'Imported document not found through Business Central API pages.' });
+  }
+
+  return res.json({
+    provider: 'bcApi',
+    company: company.code,
+    externalDocumentNo,
+    lineCount,
+    lines
+  });
+}));
+
+router.post('/bc-api/imported-orders', asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const company = getCompanyConfig(companyFromRequest(req));
+  const document = buildImportedDocumentFromBody(body, company);
+
+  if (config.access.sqlEnabled) {
+    const pool = await getPool();
+    const tables = await getTables(company.code);
+    await assertExternalDocumentCanBeImported(pool, tables, company.code, document.externalDocumentNo);
+  } else {
+    await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo);
+    const delayMs = config.defaults.importDuplicateRecheckDelayMs;
+    if (delayMs > 0) {
+      await delay(delayMs);
+    }
+    await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo);
+  }
+
+  const entitySetName = bcApiEntitySetForDocumentType(document.documentType);
+  const stagedLines = [];
+  for (const line of document.lines) {
+    stagedLines.push(await bcApi.postLine(entitySetName, company.code, toBcApiLinePayload(document, line)));
+  }
+
+  return res.status(201).json({
+    provider: 'bcApi',
+    company: company.code,
+    documentType: document.documentType,
+    externalDocumentNo: document.externalDocumentNo,
+    lineCount: stagedLines.length,
+    pdaOrder: document.documentType === 'order' ? document.pdaOrder : undefined,
+    entitySetName,
+    status: 'imported'
   });
 }));
 

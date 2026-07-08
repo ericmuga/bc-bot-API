@@ -39,10 +39,45 @@ function companyMapFromEnv(value) {
     }, {});
 }
 
+function accessModeFromEnv(value) {
+  const normalized = String(value || 'both').trim().toLowerCase();
+  if (['sql', 'api', 'bcapi', 'both'].includes(normalized)) {
+    return normalized === 'bcapi' ? 'api' : normalized;
+  }
+
+  return 'both';
+}
+
+function keyValueMapFromEnv(value) {
+  if (!value) {
+    return {};
+  }
+
+  return value
+    .split(/[;,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce((map, entry) => {
+      const [key, mappedValue] = entry.split('=').map((part) => (part || '').trim());
+      if (key && mappedValue) {
+        map[key.toUpperCase()] = mappedValue;
+      }
+
+      return map;
+    }, {});
+}
+
+const accessMode = accessModeFromEnv(process.env.BC_ACCESS_MODE);
+
 const config = {
   port: intFromEnv(process.env.PORT, 3500),
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   apiKey: process.env.BOT_API_KEY || '',
+  access: {
+    mode: accessMode,
+    sqlEnabled: accessMode === 'sql' || accessMode === 'both',
+    apiPagesEnabled: accessMode === 'api' || accessMode === 'both'
+  },
   sql: {
     server: process.env.SQL_SERVER || 'localhost',
     port: intFromEnv(process.env.SQL_PORT, 1433),
@@ -64,13 +99,30 @@ const config = {
     importedReturnOrders: process.env.SQL_TABLE_IMPORTED_RETURN_ORDERS || '',
     importedCreditNotesAL: process.env.SQL_TABLE_IMPORTED_CREDIT_NOTES_AL || '',
     customer: process.env.SQL_TABLE_CUSTOMER || '',
+    customerExt: process.env.SQL_TABLE_CUSTOMER_EXT || '',
     item: process.env.SQL_TABLE_ITEM || '',
+    itemExt: process.env.SQL_TABLE_ITEM_EXT || '',
     shipToAddress: process.env.SQL_TABLE_SHIP_TO_ADDRESS || '',
+    shipToAddressExt: process.env.SQL_TABLE_SHIP_TO_ADDRESS_EXT || '',
     salespersonPurchaser: process.env.SQL_TABLE_SALESPERSON_PURCHASER || '',
+    salespersonPurchaserExt: process.env.SQL_TABLE_SALESPERSON_PURCHASER_EXT || '',
     contact: process.env.SQL_TABLE_CONTACT || '',
+    districtGroupCode: process.env.SQL_TABLE_DISTRICT_GROUP_CODE || '',
     salesHeader: process.env.SQL_TABLE_SALES_HEADER || '',
+    salesHeaderExt: process.env.SQL_TABLE_SALES_HEADER_EXT || '',
     salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || '',
     salesCrMemoHeader: process.env.SQL_TABLE_SALES_CR_MEMO_HEADER || ''
+  },
+  bcApi: {
+    baseUrl: (process.env.BC_API_BASE_URL || '').replace(/\/$/, ''),
+    publisher: process.env.BC_API_PUBLISHER || 'fcl',
+    group: process.env.BC_API_GROUP || 'bot',
+    version: process.env.BC_API_VERSION || 'v1.0',
+    companyIds: keyValueMapFromEnv(process.env.BC_API_COMPANY_IDS),
+    username: process.env.BC_API_USERNAME || '',
+    password: process.env.BC_API_PASSWORD || process.env.BC_API_WEB_SERVICE_ACCESS_KEY || '',
+    bearerToken: process.env.BC_API_BEARER_TOKEN || '',
+    timeoutMs: intFromEnv(process.env.BC_API_TIMEOUT_MS, 30000)
   },
   filters: {
     customers: process.env.CUSTOMERS_WHERE || '[Web Portal] = 1 AND [Blocked] = 0',

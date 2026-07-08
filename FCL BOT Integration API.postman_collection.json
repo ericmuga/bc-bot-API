@@ -47,12 +47,84 @@
       "value": "90000"
     },
     {
+      "key": "customerNo2",
+      "value": "90031"
+    },
+    {
+      "key": "customerNos",
+      "value": "90000,90031"
+    },
+    {
+      "key": "customerNosJson",
+      "value": "[\"90000\",\"90031\"]"
+    },
+    {
+      "key": "customerName",
+      "value": "Web"
+    },
+    {
+      "key": "shipToCode",
+      "value": "NAIROBI"
+    },
+    {
+      "key": "shipToName",
+      "value": "Nairobi"
+    },
+    {
       "key": "salespersonCode",
       "value": "019"
     },
     {
+      "key": "salespersonCode2",
+      "value": "020"
+    },
+    {
+      "key": "salespersonCodes",
+      "value": "019,020"
+    },
+    {
+      "key": "salespersonCodesJson",
+      "value": "[\"019\",\"020\"]"
+    },
+    {
+      "key": "salespersonName",
+      "value": "Sales"
+    },
+    {
+      "key": "contactCode",
+      "value": "CT000123"
+    },
+    {
+      "key": "contactName",
+      "value": "Jane"
+    },
+    {
+      "key": "contactPhone",
+      "value": "254"
+    },
+    {
       "key": "itemNo",
       "value": "PDA001"
+    },
+    {
+      "key": "itemNo2",
+      "value": "PDA002"
+    },
+    {
+      "key": "itemNos",
+      "value": "PDA001,PDA002"
+    },
+    {
+      "key": "itemNosJson",
+      "value": "[\"PDA001\",\"PDA002\"]"
+    },
+    {
+      "key": "barcode",
+      "value": "6160001234567"
+    },
+    {
+      "key": "uom",
+      "value": "KG"
     }
   ],
   "item": [
@@ -316,6 +388,7 @@
                   "  const json = pm.response.json();",
                   "  pm.expect(json.data).to.be.an('array');",
                   "  if (json.data.length) {",
+                  "    pm.expect(json.data[0]).to.have.property('sector');",
                   "    pm.expect(json.data[0].shipTo).to.be.an('array');",
                   "  }",
                   "});"
@@ -323,6 +396,208 @@
               }
             }
           ],
+          "response": []
+        },
+        {
+          "name": "List Web Customers - Repeated Customer Numbers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&customerNo={{customerNo}}&customerNo={{customerNo2}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "customerNo",
+                  "value": "{{customerNo}}"
+                },
+                {
+                  "key": "customerNo",
+                  "value": "{{customerNo2}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters web portal customers by repeated exact customerNo query parameters."
+          },
+          "response": []
+        },
+        {
+          "name": "List Web Customers - Comma Customer Numbers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&customerNos={{customerNos}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "customerNos",
+                  "value": "{{customerNos}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters web portal customers by comma-separated exact customer numbers."
+          },
+          "response": []
+        },
+        {
+          "name": "List Web Customers - JSON Array Customer Numbers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&customerNos={{customerNosJson}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "customerNos",
+                  "value": "{{customerNosJson}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters web portal customers by a JSON-array string of exact customer numbers."
+          },
+          "response": []
+        },
+        {
+          "name": "List Web Customers - Name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&name={{customerName}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "name",
+                  "value": "{{customerName}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters web portal customers by partial customer name."
+          },
+          "response": []
+        },
+        {
+          "name": "List Web Customers - Ship-to Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&shipToCode={{shipToCode}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "shipToCode",
+                  "value": "{{shipToCode}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters web portal customers where a nested ship-to code exists."
+          },
+          "response": []
+        },
+        {
+          "name": "List Web Customers - Ship-to Name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers?company={{company}}&shipToName={{shipToName}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "shipToName",
+                  "value": "{{shipToName}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters web portal customers where a nested ship-to name partially matches."
+          },
           "response": []
         },
         {
@@ -363,15 +638,25 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Salespeople response has nested contacts array', function () {",
+                  "pm.test('Salespeople response has route, payment, contacts and ship-to arrays', function () {",
                   "  pm.response.to.have.status(200);",
                   "  const json = pm.response.json();",
                   "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.data).to.be.an('array');",
                   "  if (json.data.length) {",
+                  "    pm.expect(json.data[0]).to.have.property('currentRoute');",
+                  "    pm.expect(json.data[0].route).to.be.an('object');",
+                  "    pm.expect(json.data[0].route).to.have.property('districtGroupCode');",
+                  "    pm.expect(json.data[0]).to.have.property('mpesaTill');",
+                  "    pm.expect(json.data[0]).to.have.property('mpesaPaybill');",
                   "    pm.expect(json.data[0].contacts).to.be.an('array');",
+                  "    pm.expect(json.data[0].shipTo).to.be.an('array');",
                   "    if (json.data[0].contacts.length) {",
                   "      pm.expect(json.data[0].contacts[0]).to.have.property('code');",
+                  "    }",
+                  "    if (json.data[0].shipTo.length) {",
+                  "      pm.expect(json.data[0].shipTo[0]).to.have.property('route');",
+                  "      pm.expect(json.data[0].shipTo[0].route).to.have.property('districtGroupCode');",
                   "    }",
                   "  }",
                   "});"
@@ -382,7 +667,242 @@
           "response": []
         },
         {
-          "name": "List PDA Items",
+          "name": "List Salespeople - Repeated Codes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&salespersonCode={{salespersonCode}}&salespersonCode={{salespersonCode2}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "salespersonCode",
+                  "value": "{{salespersonCode}}"
+                },
+                {
+                  "key": "salespersonCode",
+                  "value": "{{salespersonCode2}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople by repeated salespersonCode query parameters."
+          },
+          "response": []
+        },
+        {
+          "name": "List Salespeople - Comma Codes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&salespersonCodes={{salespersonCodes}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "salespersonCodes",
+                  "value": "{{salespersonCodes}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople by comma-separated salespersonCodes."
+          },
+          "response": []
+        },
+        {
+          "name": "List Salespeople - JSON Array Codes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&salespersonCodes={{salespersonCodesJson}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "salespersonCodes",
+                  "value": "{{salespersonCodesJson}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople by a JSON-array salespersonCodes value."
+          },
+          "response": []
+        },
+        {
+          "name": "List Salespeople - Name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&name={{salespersonName}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "name",
+                  "value": "{{salespersonName}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople where the salesperson name partially matches."
+          },
+          "response": []
+        },
+        {
+          "name": "List Salespeople - Contact Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&contactCode={{contactCode}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "contactCode",
+                  "value": "{{contactCode}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople linked to a specific contact code."
+          },
+          "response": []
+        },
+        {
+          "name": "List Salespeople - Contact Name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&contactName={{contactName}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "contactName",
+                  "value": "{{contactName}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople where a nested contact name partially matches."
+          },
+          "response": []
+        },
+        {
+          "name": "List Salespeople - Contact Phone",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/salespeople?company={{company}}&contactPhone={{contactPhone}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "salespeople"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "contactPhone",
+                  "value": "{{contactPhone}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters salespeople where a nested contact phone partially matches."
+          },
+          "response": []
+        },
+        {
+          "name": "List PDA Items - Search",
           "request": {
             "method": "GET",
             "header": [],
@@ -410,7 +930,198 @@
                 }
               ]
             },
-            "description": "Reads PDA items for the selected company."
+            "description": "Reads PDA items for the selected company using broad item number/description search. Response includes barcodeNo, barcodeText, and barcodeType."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Items response has barcode payload fields', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  if (json.data.length) {",
+                  "    pm.expect(json.data[0]).to.have.property('itemNo');",
+                  "    pm.expect(json.data[0]).to.have.property('barcodeNo');",
+                  "    pm.expect(json.data[0]).to.have.property('barcodeText');",
+                  "    pm.expect(json.data[0]).to.have.property('barcodeType');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List PDA Items - Repeated Item Numbers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?company={{company}}&itemNo={{itemNo}}&itemNo={{itemNo2}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "itemNo",
+                  "value": "{{itemNo}}"
+                },
+                {
+                  "key": "itemNo",
+                  "value": "{{itemNo2}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters PDA items by repeated exact itemNo query parameters."
+          },
+          "response": []
+        },
+        {
+          "name": "List PDA Items - Comma Item Numbers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?company={{company}}&itemNos={{itemNos}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "itemNos",
+                  "value": "{{itemNos}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters PDA items by comma-separated exact item numbers."
+          },
+          "response": []
+        },
+        {
+          "name": "List PDA Items - JSON Array Item Numbers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?company={{company}}&itemNos={{itemNosJson}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "itemNos",
+                  "value": "{{itemNosJson}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters PDA items by a JSON-array string of exact item numbers."
+          },
+          "response": []
+        },
+        {
+          "name": "List PDA Items - Barcode Lookup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?company={{company}}&barcode={{barcode}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "barcode",
+                  "value": "{{barcode}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters PDA items by partial barcodeNo or barcodeText."
+          },
+          "response": []
+        },
+        {
+          "name": "List PDA Items - UOM",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/items?company={{company}}&uom={{uom}}&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "uom",
+                  "value": "{{uom}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            },
+            "description": "Filters PDA items where baseUnitOfMeasure or salesUnitOfMeasure equals the supplied UOM."
           },
           "response": []
         }

@@ -1,6 +1,7 @@
 const sql = require('mssql');
 const config = require('./config');
 
+const BASE_APP_ID = '437dbf0e-84ff-417a-965d-ed2bb9650972';
 let poolPromise;
 const tableCache = new Map();
 
@@ -74,7 +75,8 @@ async function resolveTable(logicalName, override, companyCode) {
   const request = pool.request()
     .input('schema', sql.NVarChar, config.sql.schema)
     .input('exactCompany', sql.NVarChar, `${companyPrefix}${logicalName}`)
-    .input('companyLike', sql.NVarChar, `${companyPrefix}${logicalName}$%`);
+    .input('companyLike', sql.NVarChar, `${companyPrefix}${logicalName}$%`)
+    .input('baseAppLike', sql.NVarChar, `${companyPrefix}${logicalName}$${BASE_APP_ID}`);
 
   const result = await request.query(`
     SELECT TOP 1 TABLE_NAME
@@ -88,7 +90,8 @@ async function resolveTable(logicalName, override, companyCode) {
     ORDER BY
       CASE
         WHEN TABLE_NAME = @exactCompany THEN 0
-        WHEN TABLE_NAME LIKE @companyLike THEN 1
+        WHEN TABLE_NAME = @baseAppLike THEN 1
+        WHEN TABLE_NAME LIKE @companyLike THEN 2
         ELSE 3
       END,
       TABLE_NAME
@@ -120,6 +123,14 @@ async function resolveFirstTable(logicalNames, override, companyCode) {
   throw lastError;
 }
 
+async function resolveFirstOptionalTable(logicalNames, override, companyCode) {
+  try {
+    return await resolveFirstTable(logicalNames, override, companyCode);
+  } catch (err) {
+    return '';
+  }
+}
+
 async function resolveOptionalTable(logicalName, override, companyCode) {
   try {
     return await resolveTable(logicalName, override, companyCode);
@@ -135,11 +146,17 @@ async function getTables(companyCode) {
     importedReturnOrders,
     importedCreditNotesAL,
     customer,
+    customerExt,
     item,
+    itemExt,
     shipToAddress,
+    shipToAddressExt,
     salespersonPurchaser,
+    salespersonPurchaserExt,
     contact,
+    districtGroupCode,
     salesHeader,
+    salesHeaderExt,
     salesInvoiceHeader,
     salesCrMemoHeader
   ] = await Promise.all([
@@ -148,13 +165,22 @@ async function getTables(companyCode) {
     resolveOptionalTable('Imported Return Orders', config.tables.importedReturnOrders, companyCode),
     resolveOptionalTable('Imported Credit Notes AL', config.tables.importedCreditNotesAL, companyCode),
     resolveTable('Customer', config.tables.customer, companyCode),
+    resolveOptionalTable(`Customer$${BASE_APP_ID}$ext`, config.tables.customerExt, companyCode),
     resolveTable('Item', config.tables.item, companyCode),
+    resolveOptionalTable(`Item$${BASE_APP_ID}$ext`, config.tables.itemExt, companyCode),
     resolveTable('Ship-to Address', config.tables.shipToAddress, companyCode),
+    resolveOptionalTable(`Ship-to Address$${BASE_APP_ID}$ext`, config.tables.shipToAddressExt, companyCode),
     resolveFirstTable(['Salesperson/Purchaser', 'Salesperson_Purchaser'], config.tables.salespersonPurchaser, companyCode),
+    resolveFirstOptionalTable([
+      `Salesperson/Purchaser$${BASE_APP_ID}$ext`,
+      `Salesperson_Purchaser$${BASE_APP_ID}$ext`
+    ], config.tables.salespersonPurchaserExt, companyCode),
     resolveTable('Contact', config.tables.contact, companyCode),
+    resolveOptionalTable('District Group Code', config.tables.districtGroupCode, companyCode),
     resolveTable('Sales Header', config.tables.salesHeader, companyCode),
+    resolveOptionalTable(`Sales Header$${BASE_APP_ID}$ext`, config.tables.salesHeaderExt, companyCode),
     resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode),
-    resolveTable('Sales Cr.Memo Header', config.tables.salesCrMemoHeader, companyCode)
+    resolveFirstTable(['Sales Cr.Memo Header', 'Sales Cr_Memo Header', 'Sales Cr_ Memo Header'], config.tables.salesCrMemoHeader, companyCode)
   ]);
 
   return {
@@ -163,11 +189,17 @@ async function getTables(companyCode) {
     importedReturnOrders,
     importedCreditNotesAL,
     customer,
+    customerExt,
     item,
+    itemExt,
     shipToAddress,
+    shipToAddressExt,
     salespersonPurchaser,
+    salespersonPurchaserExt,
     contact,
+    districtGroupCode,
     salesHeader,
+    salesHeaderExt,
     salesInvoiceHeader,
     salesCrMemoHeader
   };
