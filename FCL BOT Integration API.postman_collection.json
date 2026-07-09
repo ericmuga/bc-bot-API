@@ -44,19 +44,19 @@
     },
     {
       "key": "customerNo",
-      "value": "90000"
+      "value": "101"
     },
     {
       "key": "customerNo2",
-      "value": "90031"
+      "value": "102"
     },
     {
       "key": "customerNos",
-      "value": "90000,90031"
+      "value": "101,102"
     },
     {
       "key": "customerNosJson",
-      "value": "[\"90000\",\"90031\"]"
+      "value": "[\"101\",\"102\"]"
     },
     {
       "key": "customerName",
@@ -64,11 +64,11 @@
     },
     {
       "key": "shipToCode",
-      "value": "NAIROBI"
+      "value": "101"
     },
     {
       "key": "shipToName",
-      "value": "Nairobi"
+      "value": "BRAEBURN SCHOOL"
     },
     {
       "key": "salespersonCode",
@@ -104,19 +104,19 @@
     },
     {
       "key": "itemNo",
-      "value": "PDA001"
+      "value": "J31010101"
     },
     {
       "key": "itemNo2",
-      "value": "PDA002"
+      "value": "J31010201"
     },
     {
       "key": "itemNos",
-      "value": "PDA001,PDA002"
+      "value": "J31010101,J31010201"
     },
     {
       "key": "itemNosJson",
-      "value": "[\"PDA001\",\"PDA002\"]"
+      "value": "[\"J31010101\",\"J31010201\"]"
     },
     {
       "key": "barcode",
@@ -124,7 +124,7 @@
     },
     {
       "key": "uom",
-      "value": "KG"
+      "value": "PC"
     }
   ],
   "item": [
@@ -164,6 +164,25 @@
               ]
             },
             "description": "Public OpenAPI YAML. Does not require API key."
+          },
+          "response": []
+        },
+        {
+          "name": "Download Postman Collection",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/postman-collection",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "postman-collection"
+              ]
+            },
+            "description": "Downloads the current Postman collection JSON for this API."
           },
           "response": []
         }
@@ -1160,7 +1179,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"documentType\": \"order\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"{{externalDocumentNo}}\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"customerSpecification\": \"No onions\",\n  \"pdaOrder\": false,\n  \"externalOrderUrl\": \"https://bot.example.com/orders/{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"KG\",\n      \"productSpecification\": \"Vacuum packed\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"KG\",\n      \"productSpecification\": \"Tray packed\"\n    }\n  ]\n}"
+              "raw": "{\n  \"documentType\": \"order\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"{{externalDocumentNo}}\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"customerSpecification\": \"No onions\",\n  \"pdaOrder\": false,\n  \"externalOrderUrl\": \"https://bot.example.com/orders/{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Vacuum packed\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo2}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Tray packed\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/imported-orders",
@@ -1172,7 +1191,7 @@
                 "imported-orders"
               ]
             },
-            "description": "Stages a BOT order into BC Imported Orders. Before writing, the API checks staging, Sales Header, and Sales Invoice Header for the same External Document No.; if not found, it waits briefly and checks again to avoid duplicates during BC posting handover."
+            "description": "Stages a single BOT order into BC Imported Orders. POST /api/imported-orders also accepts a raw array of order objects or an object wrapper { \"orders\": [...] } for batch staging."
           },
           "event": [
             {
@@ -1194,6 +1213,52 @@
           "response": []
         },
         {
+          "name": "Create Imported Orders Batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"documentType\": \"order\",\n      \"company\": \"{{company}}\",\n      \"externalDocumentNo\": \"BOT-BATCH-100045\",\n      \"sellToCustomerNo\": \"{{customerNo}}\",\n      \"shipmentDate\": \"2026-06-22\",\n      \"salespersonCode\": \"{{salespersonCode}}\",\n      \"shipToCode\": \"{{shipToCode}}\",\n      \"shipToName\": \"{{shipToName}}\",\n      \"customerSpecification\": \"No onions\",\n      \"pdaOrder\": false,\n      \"externalOrderUrl\": \"https://bot.example.com/orders/BOT-BATCH-100045\",\n      \"lines\": [\n        {\n          \"lineNo\": 10000,\n          \"itemNo\": \"{{itemNo}}\",\n          \"quantity\": 12,\n          \"unitOfMeasure\": \"{{uom}}\",\n          \"productSpecification\": \"Vacuum packed\"\n        }\n      ]\n    },\n    {\n      \"documentType\": \"order\",\n      \"company\": \"{{company}}\",\n      \"externalDocumentNo\": \"BOT-BATCH-100046\",\n      \"sellToCustomerNo\": \"{{customerNo}}\",\n      \"shipmentDate\": \"2026-06-22\",\n      \"salespersonCode\": \"{{salespersonCode}}\",\n      \"shipToCode\": \"{{shipToCode}}\",\n      \"shipToName\": \"{{shipToName}}\",\n      \"customerSpecification\": \"No onions\",\n      \"pdaOrder\": false,\n      \"externalOrderUrl\": \"https://bot.example.com/orders/BOT-BATCH-100046\",\n      \"lines\": [\n        {\n          \"lineNo\": 10000,\n          \"itemNo\": \"{{itemNo2}}\",\n          \"quantity\": 5,\n          \"unitOfMeasure\": \"{{uom}}\",\n          \"productSpecification\": \"Tray packed\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders"
+              ]
+            },
+            "description": "Stages multiple BOT orders in one request. Each object has the same shape as Create Imported Order, with header fields and nested lines. The endpoint also accepts a raw JSON array of order objects."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Imported order batch is staged', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.batch).to.eql(true);",
+                  "  pm.expect(json.count).to.eql(2);",
+                  "  pm.expect(json.orders).to.be.an('array').with.length(2);",
+                  "  pm.expect(json.orders[0].status).to.eql('imported');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
           "name": "Create Imported Invoice",
           "request": {
             "method": "POST",
@@ -1205,7 +1270,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"documentType\": \"invoice\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-INV-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"location\": \"3535\",\n  \"totalHeaderAmount\": 1972,\n  \"totalHeaderQty\": 17,\n  \"billTo\": \"{{customerNo}}\",\n  \"cuInvoiceNo\": \"CU-100045\",\n  \"cuNo\": \"ETR-01\",\n  \"signingTime\": \"2026-06-22T10:15:00\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"KG\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 1392,\n      \"location\": \"3535\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"KG\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 580,\n      \"location\": \"3535\"\n    }\n  ]\n}"
+              "raw": "{\n  \"documentType\": \"invoice\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-INV-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"location\": \"3535\",\n  \"totalHeaderAmount\": 1972,\n  \"totalHeaderQty\": 17,\n  \"billTo\": \"{{customerNo}}\",\n  \"cuInvoiceNo\": \"CU-100045\",\n  \"cuNo\": \"ETR-01\",\n  \"signingTime\": \"2026-06-22T10:15:00\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 1392,\n      \"location\": \"3535\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo2}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 580,\n      \"location\": \"3535\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/imported-orders",
@@ -1250,7 +1315,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"documentType\": \"returnOrder\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-RET-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"originalOrderNo\": \"{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"KG\"\n    }\n  ]\n}"
+              "raw": "{\n  \"documentType\": \"returnOrder\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-RET-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"originalOrderNo\": \"{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"{{uom}}\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/imported-orders",
@@ -1294,7 +1359,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"documentType\": \"creditNote\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-CN-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"NAIROBI\",\n  \"shipToName\": \"Nairobi Outlet\",\n  \"location\": \"3535\",\n  \"taxAppliedDocumentNo\": \"CU-INV-100045\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"totalHeaderAmount\": 232,\n  \"totalHeaderQty\": 2,\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"KG\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 232,\n      \"location\": \"3535\"\n    }\n  ]\n}"
+              "raw": "{\n  \"documentType\": \"creditNote\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-CN-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"location\": \"3535\",\n  \"taxAppliedDocumentNo\": \"CU-INV-100045\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"totalHeaderAmount\": 232,\n  \"totalHeaderQty\": 2,\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 232,\n      \"location\": \"3535\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/imported-orders",
@@ -1332,7 +1397,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/imported-orders?company={{company}}&externalDocumentNo={{externalDocumentNo}}&customerNo={{customerNo}}&shipmentDate=2026-06-22&shipToCode=NAIROBI&salespersonCode={{salespersonCode}}&status=Order&limit=100",
+              "raw": "{{baseUrl}}/api/imported-orders?company={{company}}&externalDocumentNo={{externalDocumentNo}}&customerNo={{customerNo}}&shipmentDate=2026-06-22&shipToCode={{shipToCode}}&salespersonCode={{salespersonCode}}&status=Order&limit=100",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1369,7 +1434,7 @@
                 },
                 {
                   "key": "shipToCode",
-                  "value": "NAIROBI"
+                  "value": "{{shipToCode}}"
                 },
                 {
                   "key": "salespersonCode",

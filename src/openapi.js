@@ -32,11 +32,11 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             example: 'order'
           },
           externalDocumentNo: { type: 'string', example: 'BOT-100045' },
-          sellToCustomerNo: { type: 'string', example: '90000' },
+          sellToCustomerNo: { type: 'string', example: '101' },
           shipmentDate: { type: 'string', format: 'date', example: '2026-06-22' },
           salespersonCode: { type: 'string', example: '019' },
-          shipToCode: { type: 'string', nullable: true, example: 'NAIROBI' },
-          shipToName: { type: 'string', nullable: true, example: 'Nairobi Outlet' },
+          shipToCode: { type: 'string', nullable: true, example: '101' },
+          shipToName: { type: 'string', nullable: true, example: 'BRAEBURN SCHOOL' },
           customerSpecification: { type: 'string', nullable: true, example: 'No onions' },
           pdaOrder: {
             type: 'boolean',
@@ -48,7 +48,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           location: { type: 'string', nullable: true, example: '3535', description: 'Invoice default location; line.location can override it.' },
           totalHeaderAmount: { type: 'number', nullable: true, example: 1972, description: 'Invoice header total amount used by Import SalesAL posting validation.' },
           totalHeaderQty: { type: 'number', nullable: true, example: 17, description: 'Invoice header total quantity; defaults to the sum of line quantities.' },
-          billTo: { type: 'string', nullable: true, example: '90000' },
+          billTo: { type: 'string', nullable: true, example: '101' },
           cuInvoiceNo: { type: 'string', nullable: true, example: 'CU-100045' },
           cuNo: { type: 'string', nullable: true, example: 'ETR-01' },
           signingTime: { type: 'string', nullable: true, example: '2026-06-22T10:15:00' },
@@ -76,9 +76,9 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               required: ['itemNo', 'quantity', 'unitOfMeasure'],
               properties: {
                 lineNo: { type: 'integer', nullable: true, example: 10000 },
-                itemNo: { type: 'string', example: 'PDA001' },
+                itemNo: { type: 'string', example: 'J31010101' },
                 quantity: { type: 'number', example: 12 },
-                unitOfMeasure: { type: 'string', example: 'KG' },
+                unitOfMeasure: { type: 'string', example: 'PC' },
                 location: { type: 'string', nullable: true, example: '3535' },
                 unitPrice: { type: 'number', nullable: true, example: 116, description: 'Required for invoice and creditNote payloads.' },
                 lineAmount: { type: 'number', nullable: true, example: 1392, description: 'Invoice/credit-note line amount; defaults to quantity * unitPrice.' },
@@ -93,17 +93,17 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       Customer: {
         type: 'object',
         properties: {
-          id: { type: 'string', example: '90000' },
-          customerNo: { type: 'string', example: '90000' },
-          name: { type: 'string', example: 'Web Customer Ltd' },
+          id: { type: 'string', example: '101' },
+          customerNo: { type: 'string', example: '101' },
+          name: { type: 'string', example: 'Braeburn School' },
           sector: { type: 'string', example: 'HORECA' },
           shipTo: {
             type: 'array',
             items: {
               type: 'object',
               properties: {
-                code: { type: 'string', example: 'NAIROBI' },
-                name: { type: 'string', example: 'Nairobi Outlet' }
+                code: { type: 'string', example: '101' },
+                name: { type: 'string', example: 'BRAEBURN SCHOOL' }
               }
             }
           }
@@ -112,13 +112,13 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       Item: {
         type: 'object',
         properties: {
-          id: { type: 'string', example: 'PDA001' },
-          itemNo: { type: 'string', example: 'PDA001' },
-          description: { type: 'string', example: 'PDA Beef Pack' },
+          id: { type: 'string', example: 'J31010101' },
+          itemNo: { type: 'string', example: 'J31010101' },
+          description: { type: 'string', example: 'Pork Chipolatas 200gms' },
           baseUnitOfMeasure: { type: 'string', example: 'KG' },
-          salesUnitOfMeasure: { type: 'string', example: 'KG' },
-          barcodeNo: { type: 'string', example: '6160001234567' },
-          barcodeText: { type: 'string', example: '6160001234567' },
+          salesUnitOfMeasure: { type: 'string', example: 'PC' },
+          barcodeNo: { type: 'string', example: '' },
+          barcodeText: { type: 'string', example: '' },
           barcodeType: { type: 'integer', example: 0 }
         }
       },
@@ -126,14 +126,14 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         type: 'object',
         properties: {
           salespersonCode: { type: 'string', example: '019' },
-          name: { type: 'string', example: 'Jane Sales' },
-          currentRoute: { type: 'string', example: 'RT001' },
+          name: { type: 'string', example: 'Direct Sales' },
+          currentRoute: { type: 'string', example: 'R075' },
           route: {
             type: 'object',
             properties: {
-              code: { type: 'string', example: 'RT001' },
-              districtGroupCode: { type: 'string', example: 'RT001', description: 'Same value as route code; Business Central stores route as District Group Code.' },
-              name: { type: 'string', example: 'Nairobi CBD' },
+              code: { type: 'string', example: 'R075' },
+              districtGroupCode: { type: 'string', example: 'R075', description: 'Same value as route code; Business Central stores route as District Group Code.' },
+              name: { type: 'string', example: 'Direct Sales' },
               paymentType: { type: 'string', example: 'Till' },
               payBill: { type: 'string', example: '123456' },
               mpesaTill: { type: 'string', example: '123456' },
@@ -148,7 +148,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               type: 'object',
               properties: {
                 code: { type: 'string', example: 'CT000123' },
-                name: { type: 'string', example: 'Jane Sales' },
+                name: { type: 'string', example: 'Direct Sales' },
                 phone: { type: 'string', example: '+254700000000' }
               }
             }
@@ -158,15 +158,15 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             items: {
               type: 'object',
               properties: {
-                customerNo: { type: 'string', example: '90000' },
-                code: { type: 'string', example: 'NAIROBI' },
-                name: { type: 'string', example: 'Nairobi Outlet' },
+                customerNo: { type: 'string', example: '101' },
+                code: { type: 'string', example: '101' },
+                name: { type: 'string', example: 'BRAEBURN SCHOOL' },
                 route: {
                   type: 'object',
                   properties: {
-                    code: { type: 'string', example: 'RT001' },
-                    districtGroupCode: { type: 'string', example: 'RT001', description: 'Same value as route code; Business Central stores route as District Group Code.' },
-                    name: { type: 'string', example: 'Nairobi CBD' },
+                    code: { type: 'string', example: 'R075' },
+                    districtGroupCode: { type: 'string', example: 'R075', description: 'Same value as route code; Business Central stores route as District Group Code.' },
+                    name: { type: 'string', example: 'Direct Sales' },
                     paymentType: { type: 'string', example: 'Till' },
                     payBill: { type: 'string', example: '123456' },
                     mpesaTill: { type: 'string', example: '123456' },
@@ -239,7 +239,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           sourceTable: { type: 'string', example: 'Sales Header' },
           documentNo: { type: 'string', example: 'SO-100045' },
           documentType: { type: 'string', nullable: true, example: 'Order' },
-          sellToCustomerNo: { type: 'string', nullable: true, example: '90000' },
+          sellToCustomerNo: { type: 'string', nullable: true, example: '101' },
           postingDate: { type: 'string', nullable: true, format: 'date' },
           importedOrderState: { type: 'string', nullable: true, example: 'salesOrder' },
           statusCounts: {
@@ -274,8 +274,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 sourceTable: { type: 'string', example: 'Imported SalesAL' },
                 externalDocumentNo: { type: 'string', example: 'BOT-INV-100045' },
                 lineNo: { type: 'integer', example: 10000 },
-                itemNo: { type: 'string', example: 'PDA001' },
-                errorMessage: { type: 'string', example: 'Item PDA001 was not found or is blocked.' }
+                itemNo: { type: 'string', example: 'J31010101' },
+                errorMessage: { type: 'string', example: 'Item J31010101 was not found or is blocked.' }
               }
             }
           },
@@ -296,7 +296,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     documentNo: { type: 'string', example: 'SO-100045' },
                     documentType: { type: 'integer', example: 1 },
                     status: { type: 'integer', example: 0 },
-                    sellToCustomerNo: { type: 'string', example: '90000' },
+                    sellToCustomerNo: { type: 'string', example: '101' },
                     externalDocumentNo: { type: 'string', example: 'BOT-100045' },
                     pdaOrder: { type: 'boolean', example: false }
                   }
@@ -310,7 +310,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                   properties: {
                     invoiceNo: { type: 'string', example: 'INV-100045' },
                     postingDate: { type: 'string', format: 'date' },
-                    sellToCustomerNo: { type: 'string', example: '90000' },
+                    sellToCustomerNo: { type: 'string', example: '101' },
                     externalDocumentNo: { type: 'string', example: 'BOT-100045' }
                   }
                 }
@@ -323,7 +323,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               type: 'object',
               properties: {
                 lineNo: { type: 'integer', example: 10000 },
-                itemNo: { type: 'string', example: 'PDA001' },
+                itemNo: { type: 'string', example: 'J31010101' },
                 quantity: { type: 'number', example: 12 },
                 status: { type: 'integer', example: 0 },
                 statusName: { type: 'string', example: 'Order' },
@@ -346,6 +346,35 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         summary: 'Health check',
         responses: {
           200: { description: 'API and database are reachable' }
+        }
+      }
+    },
+    '/api/postman-collection': {
+      get: {
+        summary: 'Download Postman collection',
+        description: 'Downloads the current Postman collection JSON for this API.',
+        responses: {
+          200: {
+            description: 'Postman collection JSON file',
+            headers: {
+              'Content-Disposition': {
+                description: 'Attachment filename for the Postman collection.',
+                schema: { type: 'string' }
+              }
+            },
+            content: {
+              'application/json': {
+                schema: { type: 'object' },
+                example: {
+                  info: {
+                    name: 'FCL BOT Integration API',
+                    schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
+                  },
+                  item: []
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -612,8 +641,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     },
     '/api/imported-orders': {
       get: {
-        summary: 'List imported order lines',
-        description: 'Lists staged Imported Orders lines with optional filters. Filters are exact matches except shipment date ranges.',
+        summary: 'List imported orders',
+        description: 'Lists staged Imported Orders as order documents with header fields and nested lines. Filters are exact matches except shipment date ranges. Pagination is line-based, and metadata.totalLineCount reports the matching line count.',
         parameters: [
           { name: 'externalDocumentNo', in: 'query', schema: { type: 'string' }, description: 'BOT external document number.' },
           { name: 'customerNo', in: 'query', schema: { type: 'string' }, description: 'Alias for sellToCustomerNo.' },
@@ -638,25 +667,78 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         ],
         responses: {
           200: {
-            description: 'Filtered imported order lines',
+            description: 'Filtered imported orders with nested lines',
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
                   properties: {
-                    company: { type: 'string', example: 'FCL' },
-                    count: { type: 'integer', example: 100 },
-                    totalCount: { type: 'integer', example: 1500 },
-                    page: { type: 'integer', example: 1 },
-                    limit: { type: 'integer', example: 100 },
-                    offset: { type: 'integer', example: 0 },
-                    totalPages: { type: 'integer', example: 15 },
-                    hasNext: { type: 'boolean', example: true },
-                    hasPrevious: { type: 'boolean', example: false },
-                    data: {
+                    metadata: {
+                      type: 'object',
+                      properties: {
+                        company: { type: 'string', example: 'FCL' },
+                        count: { type: 'integer', example: 1 },
+                        documentCount: { type: 'integer', example: 1 },
+                        totalLineCount: { type: 'integer', example: 2 },
+                        page: { type: 'integer', example: 1 },
+                        limit: { type: 'integer', example: 100 },
+                        offset: { type: 'integer', example: 0 },
+                        totalPages: { type: 'integer', example: 1 },
+                        hasNext: { type: 'boolean', example: false },
+                        hasPrevious: { type: 'boolean', example: false },
+                        paginationMode: { type: 'string', example: 'lines' }
+                      }
+                    },
+                    orders: {
                       type: 'array',
                       items: { type: 'object' }
                     }
+                  },
+                  example: {
+                    metadata: {
+                      company: 'FCL',
+                      count: 1,
+                      documentCount: 1,
+                      totalLineCount: 2,
+                      page: 1,
+                      limit: 100,
+                      offset: 0,
+                      totalPages: 1,
+                      hasNext: false,
+                      hasPrevious: false,
+                      paginationMode: 'lines'
+                    },
+                    orders: [
+                      {
+                        documentType: 'order',
+                        externalDocumentNo: 'BOT-100045',
+                        sellToCustomerNo: '101',
+                        shipmentDate: '2026-06-22T00:00:00.000Z',
+                        salespersonCode: '019',
+                        shipToCode: '101',
+                        shipToName: 'BRAEBURN SCHOOL',
+                        customerSpecification: 'No onions',
+                        externalOrderUrl: 'https://bot.example.com/orders/BOT-100045',
+                        pdaOrder: false,
+                        expectedLineCount: 2,
+                        lineCount: 2,
+                        orderStatus: 'imported',
+                        statusName: 'Order',
+                        statusCounts: { Order: 2 },
+                        lines: [
+                          {
+                            lineNo: 10000,
+                            itemNo: 'J31010101',
+                            quantity: 12,
+                            unitOfMeasure: 'PC',
+                            productSpecification: 'Vacuum packed',
+                            status: 0,
+                            statusName: 'Order',
+                            errorMessage: ''
+                          }
+                        ]
+                      }
+                    ]
                   }
                 }
               }
@@ -667,12 +749,116 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       },
       post: {
         summary: 'Create an imported sales document',
-        description: 'Writes line-based sales data into Business Central staging. documentType=order writes to Imported Orders; invoice writes to Imported SalesAL; returnOrder writes to Imported Return Orders; creditNote writes to Imported Credit Notes AL. Before writing, the API checks staging, Sales Header, posted invoices, and posted credit memos for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
+        description: 'Writes line-based sales data into Business Central staging. Accepts either a single document object, an array of document objects, or { orders: [...] }. documentType=order writes to Imported Orders; invoice writes to Imported SalesAL; returnOrder writes to Imported Return Orders; creditNote writes to Imported Credit Notes AL. Before writing each document, the API checks staging, Sales Header, posted invoices, and posted credit memos for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/ImportedOrderRequest' }
+              schema: {
+                oneOf: [
+                  { $ref: '#/components/schemas/ImportedOrderRequest' },
+                  {
+                    type: 'array',
+                    minItems: 1,
+                    items: { $ref: '#/components/schemas/ImportedOrderRequest' }
+                  },
+                  {
+                    type: 'object',
+                    required: ['orders'],
+                    properties: {
+                      orders: {
+                        type: 'array',
+                        minItems: 1,
+                        items: { $ref: '#/components/schemas/ImportedOrderRequest' }
+                      }
+                    }
+                  }
+                ]
+              },
+              examples: {
+                singleOrder: {
+                  summary: 'Single order',
+                  value: {
+                    documentType: 'order',
+                    company: 'FCL',
+                    externalDocumentNo: 'BOT-100045',
+                    sellToCustomerNo: '101',
+                    shipmentDate: '2026-06-22',
+                    salespersonCode: '019',
+                    shipToCode: '101',
+                    shipToName: 'BRAEBURN SCHOOL',
+                    customerSpecification: 'No onions',
+                    pdaOrder: false,
+                    externalOrderUrl: 'https://bot.example.com/orders/BOT-100045',
+                    lines: [
+                      {
+                        lineNo: 10000,
+                        itemNo: 'J31010101',
+                        quantity: 12,
+                        unitOfMeasure: 'PC',
+                        productSpecification: 'Vacuum packed'
+                      }
+                    ]
+                  }
+                },
+                batchArray: {
+                  summary: 'Batch as array',
+                  value: [
+                    {
+                      documentType: 'order',
+                      company: 'FCL',
+                      externalDocumentNo: 'BOT-100045',
+                      sellToCustomerNo: '101',
+                      shipmentDate: '2026-06-22',
+                      salespersonCode: '019',
+                      shipToCode: '101',
+                      shipToName: 'BRAEBURN SCHOOL',
+                      customerSpecification: 'No onions',
+                      pdaOrder: false,
+                      lines: [
+                        { lineNo: 10000, itemNo: 'J31010101', quantity: 12, unitOfMeasure: 'PC', productSpecification: 'Vacuum packed' }
+                      ]
+                    },
+                    {
+                      documentType: 'order',
+                      company: 'FCL',
+                      externalDocumentNo: 'BOT-100046',
+                      sellToCustomerNo: '101',
+                      shipmentDate: '2026-06-22',
+                      salespersonCode: '019',
+                      shipToCode: '101',
+                      shipToName: 'BRAEBURN SCHOOL',
+                      customerSpecification: 'No onions',
+                      pdaOrder: false,
+                      lines: [
+                        { lineNo: 10000, itemNo: 'J31010101', quantity: 5, unitOfMeasure: 'PC', productSpecification: 'Tray packed' }
+                      ]
+                    }
+                  ]
+                },
+                batchWrapper: {
+                  summary: 'Batch as object wrapper',
+                  value: {
+                    orders: [
+                      {
+                        documentType: 'order',
+                        company: 'FCL',
+                        externalDocumentNo: 'BOT-100045',
+                        sellToCustomerNo: '101',
+                        shipmentDate: '2026-06-22',
+                        salespersonCode: '019',
+                        shipToCode: '101',
+                        shipToName: 'BRAEBURN SCHOOL',
+                        customerSpecification: 'No onions',
+                        pdaOrder: false,
+                        lines: [
+                          { lineNo: 10000, itemNo: 'J31010101', quantity: 12, unitOfMeasure: 'PC', productSpecification: 'Vacuum packed' }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
             }
           }
         },

@@ -1,9 +1,12 @@
 const express = require('express');
+const path = require('path');
 const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, bracket } = require('./db');
 const config = require('./config');
 const bcApi = require('./bcApi');
 
 const router = express.Router();
+const POSTMAN_COLLECTION_FILENAME = 'FCL BOT Integration API.postman_collection.json';
+const postmanCollectionPath = path.join(__dirname, '..', POSTMAN_COLLECTION_FILENAME);
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -157,6 +160,23 @@ function optionalNumber(value, fallback = 0) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function bcDecimalType() {
+  return sql.NVarChar;
+}
+
+function bcDecimalValue(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return '0';
+  }
+
+  return parsed.toFixed(20).replace(/\.?0+$/, '') || '0';
+}
+
+function bcDecimalParameter(name) {
+  return `CAST(@${name} AS decimal(38, 20))`;
 }
 
 function optionalBoolean(value, fallback = false) {
@@ -432,6 +452,61 @@ function collectLineErrors(lines) {
     }));
 }
 
+function groupImportedOrderDocuments(lines) {
+  const documents = new Map();
+
+  for (const line of lines) {
+    const statusName = line.statusName || importedOrderStatusName(line.status);
+    let document = documents.get(line.externalDocumentNo);
+
+    if (!document) {
+      document = {
+        documentType: 'order',
+        externalDocumentNo: line.externalDocumentNo,
+        sellToCustomerNo: line.sellToCustomerNo,
+        shipmentDate: line.shipmentDate,
+        salespersonCode: line.salespersonCode,
+        shipToCode: line.shipToCode,
+        shipToName: line.shipToName,
+        customerSpecification: line.customerSpecification,
+        externalOrderUrl: line.externalOrderUrl,
+        pdaOrder: Boolean(line.pdaOrder),
+        expectedLineCount: line.expectedLineCount,
+        lineCount: 0,
+        statusCounts: {},
+        lines: []
+      };
+      documents.set(line.externalDocumentNo, document);
+    }
+
+    document.lineCount += 1;
+    document.statusCounts[statusName] = (document.statusCounts[statusName] || 0) + 1;
+    document.lines.push({
+      lineNo: line.lineNo,
+      itemNo: line.itemNo,
+      quantity: line.quantity,
+      unitOfMeasure: line.unitOfMeasure,
+      productSpecification: line.productSpecification,
+      status: line.status,
+      statusName,
+      errorMessage: line.errorMessage
+    });
+  }
+
+  return [...documents.values()].map((document) => {
+    const summary = summarizeImportedOrderStatus(document.lines);
+    const statusNames = Object.keys(summary.counts);
+    const statusName = statusNames.length === 1 ? statusNames[0] : 'Mixed';
+
+    return {
+      ...document,
+      orderStatus: summary.state,
+      statusName,
+      statusCounts: summary.counts
+    };
+  });
+}
+
 function buildBcOrderStatus(externalDocumentNo, importedLines, importedSalesLines, importedReturnLines, importedCreditNoteLines, salesDocuments) {
   const importedSummary = summarizeImportedOrderStatus(importedLines);
   const importedReturnSummary = summarizeImportedReturnOrderStatus(importedReturnLines);
@@ -626,7 +701,7 @@ async function getImportedOrderLinesByExternalDocumentNo(pool, tables, externalD
     .query(`
       SELECT
         ${bracket('External Document No_')} AS externalDocumentNo,
-        ${bracket('Line No_')} AS lineNo,
+        ${bracket('Line No_')} AS ${bracket('lineNo')},
         ${bracket('Item No_')} AS itemNo,
         ${bracket('Quantity')} AS quantity,
         ${bracket('Status')} AS status,
@@ -651,7 +726,7 @@ async function getImportedSalesLinesByExternalDocumentNo(pool, tables, externalD
     .query(`
       SELECT
         ${bracket('ExtDocNo')} AS externalDocumentNo,
-        ${bracket('LineNo')} AS lineNo,
+        ${bracket('LineNo')} AS ${bracket('lineNo')},
         ${bracket('ItemNo')} AS itemNo,
         ${bracket('Qty')} AS quantity,
         ${bracket('SUOM')} AS unitOfMeasure,
@@ -680,7 +755,7 @@ async function getImportedReturnLinesByExternalDocumentNo(pool, tables, external
     .query(`
       SELECT
         ${bracket('External Document No_')} AS externalDocumentNo,
-        ${bracket('Line No_')} AS lineNo,
+        ${bracket('Line No_')} AS ${bracket('lineNo')},
         ${bracket('Item No_')} AS itemNo,
         ${bracket('Quantity')} AS quantity,
         ${bracket('Unit of Measure')} AS unitOfMeasure,
@@ -709,7 +784,7 @@ async function getImportedCreditNoteLinesByExternalDocumentNo(pool, tables, exte
     .query(`
       SELECT
         ${bracket('ExtDocNo')} AS externalDocumentNo,
-        ${bracket('LineNo')} AS lineNo,
+        ${bracket('LineNo')} AS ${bracket('lineNo')},
         ${bracket('ItemNo')} AS itemNo,
         ${bracket('Qty')} AS quantity,
         ${bracket('SUOM')} AS unitOfMeasure,
@@ -1094,6 +1169,14 @@ router.get('/health', asyncHandler(async (req, res) => {
     database: maskedDatabaseInfo(companyCode)
   });
 }));
+
+router.get('/postman-collection', (req, res, next) => {
+  res.download(postmanCollectionPath, POSTMAN_COLLECTION_FILENAME, (err) => {
+    if (err) {
+      next(err);
+    }
+  });
+});
 
 router.get('/status', asyncHandler(async (req, res) => {
   const startedAt = Date.now();
@@ -1897,7 +1980,7 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
         ${bracket('Quantity')} AS quantity,
         ${bracket('Unit of Measure')} AS unitOfMeasure,
         ${bracket('Ship-to Name')} AS shipToName,
-        ${bracket('Line No_')} AS lineNo,
+        ${bracket('Line No_')} AS ${bracket('lineNo')},
         ${bracket('Status')} AS status,
         ${bracket('Expected Line Count')} AS expectedLineCount,
         ${bracket('Error Message')} AS errorMessage,
@@ -1908,21 +1991,45 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
         ${bracket('Product Specification')} AS productSpecification
       FROM ${importedOrders}
       ${whereClause}
+    ),
+    NumberedImportedOrders AS (
+      SELECT
+        *,
+        COUNT(*) OVER() AS totalCount,
+        ROW_NUMBER() OVER (ORDER BY ${bracket('externalDocumentNo')}, ${bracket('lineNo')}) AS ${bracket('rowNumber')}
+      FROM MatchingImportedOrders
     )
-    SELECT
-      *,
-      COUNT(*) OVER() AS totalCount
-    FROM MatchingImportedOrders
-    ORDER BY externalDocumentNo, lineNo
-    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    SELECT *
+    FROM NumberedImportedOrders
+    WHERE ${bracket('rowNumber')} > @offset
+      AND ${bracket('rowNumber')} <= @offset + @limit
+    ORDER BY ${bracket('rowNumber')}
   `);
 
-  const data = result.recordset.map(({ totalCount, ...line }) => ({
+  const lines = result.recordset.map(({ totalCount, rowNumber, ...line }) => ({
     ...line,
     statusName: importedOrderStatusName(line.status)
   }));
-  const totalCount = result.recordset[0]?.totalCount || 0;
-  res.json(paginatedResponse(companyCode, data, pagination, totalCount));
+  const orders = groupImportedOrderDocuments(lines);
+  const totalLineCount = result.recordset[0]?.totalCount || 0;
+  const totalPages = totalLineCount > 0 ? Math.ceil(totalLineCount / pagination.limit) : 0;
+
+  res.json({
+    metadata: {
+      company: getCompanyConfig(companyCode).code,
+      count: orders.length,
+      documentCount: orders.length,
+      totalLineCount,
+      page: pagination.page,
+      limit: pagination.limit,
+      offset: pagination.offset,
+      totalPages,
+      hasNext: pagination.offset + lines.length < totalLineCount,
+      hasPrevious: pagination.offset > 0,
+      paginationMode: 'lines'
+    },
+    orders
+  });
 }));
 
 router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res) => {
@@ -1944,7 +2051,7 @@ router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res)
         ${bracket('Quantity')} AS quantity,
         ${bracket('Unit of Measure')} AS unitOfMeasure,
         ${bracket('Ship-to Name')} AS shipToName,
-        ${bracket('Line No_')} AS lineNo,
+        ${bracket('Line No_')} AS ${bracket('lineNo')},
         ${bracket('Status')} AS status,
         ${bracket('Expected Line Count')} AS expectedLineCount,
         ${bracket('Error Message')} AS errorMessage,
@@ -1962,10 +2069,15 @@ router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res)
     return res.status(404).json({ error: 'Imported order not found.' });
   }
 
+  const lines = result.recordset.map((line) => ({
+    ...line,
+    statusName: importedOrderStatusName(line.status)
+  }));
+  const [document] = groupImportedOrderDocuments(lines);
+
   return res.json({
     company: getCompanyConfig(companyCode).code,
-    externalDocumentNo,
-    lines: result.recordset
+    ...document
   });
 }));
 
@@ -2092,9 +2204,8 @@ router.post('/bc-api/imported-orders', asyncHandler(async (req, res) => {
   });
 }));
 
-router.post('/imported-orders', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const companyCode = companyFromRequest(req);
+async function stageImportedOrderSql(body) {
+  const companyCode = companyFromRequest({ params: {}, query: {}, body });
   const company = getCompanyConfig(companyCode);
   const documentType = documentTypeFromValue(body.documentType);
   const externalDocumentNo = requireString(body.externalDocumentNo, 'externalDocumentNo');
@@ -2116,7 +2227,9 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
   const taxAppliedDocumentNo = optionalString(body.taxAppliedDocumentNo || body.appliedInvoiceNo || body.originalInvoiceNo);
 
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
-    return res.status(400).json({ error: 'lines must contain at least one order line.' });
+    const error = new Error('lines must contain at least one order line.');
+    error.statusCode = 400;
+    throw error;
   }
 
   const lines = body.lines.map((line, index) => ({
@@ -2157,14 +2270,14 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('shipToCode', sql.NVarChar, shipToCode)
           .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
           .input('itemNo', sql.NVarChar, line.itemNo)
-          .input('quantity', sql.Decimal(38, 20), line.quantity)
+          .input('quantity', bcDecimalType(), bcDecimalValue(line.quantity))
           .input('location', sql.NVarChar, line.location)
           .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
-          .input('unitPrice', sql.Decimal(38, 20), line.unitPrice)
+          .input('unitPrice', bcDecimalType(), bcDecimalValue(line.unitPrice))
           .input('shipToName', sql.NVarChar, shipToName)
-          .input('totalHeaderAmount', sql.Decimal(38, 20), totalHeaderAmount)
-          .input('lineAmount', sql.Decimal(38, 20), line.lineAmount)
-          .input('totalHeaderQty', sql.Decimal(38, 20), totalHeaderQty)
+          .input('totalHeaderAmount', bcDecimalType(), bcDecimalValue(totalHeaderAmount))
+          .input('lineAmount', bcDecimalType(), bcDecimalValue(line.lineAmount))
+          .input('totalHeaderQty', bcDecimalType(), bcDecimalValue(totalHeaderQty))
           .input('lineNo', sql.Int, line.lineNo)
           .input('type', sql.Int, 2)
           .input('billTo', sql.NVarChar, billTo)
@@ -2192,6 +2305,8 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             ${bracket('Type')},
             ${bracket('Executed')},
             ${bracket('Posted')},
+            ${bracket('ItemBlockedStatus')},
+            ${bracket('RevertFlag')},
             ${bracket('BillTo')},
             ${bracket('Tax Applied Document No_')},
             ${bracket('Return Reason Code')},
@@ -2206,16 +2321,18 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @shipToCode,
             @externalDocumentNo,
             @itemNo,
-            @quantity,
+            ${bcDecimalParameter('quantity')},
             @location,
             @unitOfMeasure,
-            @unitPrice,
+            ${bcDecimalParameter('unitPrice')},
             @shipToName,
-            @totalHeaderAmount,
-            @lineAmount,
-            @totalHeaderQty,
+            ${bcDecimalParameter('totalHeaderAmount')},
+            ${bcDecimalParameter('lineAmount')},
+            ${bcDecimalParameter('totalHeaderQty')},
             @lineNo,
             @type,
+            0,
+            0,
             0,
             0,
             @billTo,
@@ -2234,14 +2351,14 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('shipToCode', sql.NVarChar, shipToCode)
           .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
           .input('itemNo', sql.NVarChar, line.itemNo)
-          .input('quantity', sql.Decimal(38, 20), line.quantity)
+          .input('quantity', bcDecimalType(), bcDecimalValue(line.quantity))
           .input('location', sql.NVarChar, line.location)
           .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
-          .input('unitPrice', sql.Decimal(38, 20), line.unitPrice)
+          .input('unitPrice', bcDecimalType(), bcDecimalValue(line.unitPrice))
           .input('shipToName', sql.NVarChar, shipToName)
-          .input('totalHeaderAmount', sql.Decimal(38, 20), totalHeaderAmount)
-          .input('lineAmount', sql.Decimal(38, 20), line.lineAmount)
-          .input('totalHeaderQty', sql.Decimal(38, 20), totalHeaderQty)
+          .input('totalHeaderAmount', bcDecimalType(), bcDecimalValue(totalHeaderAmount))
+          .input('lineAmount', bcDecimalType(), bcDecimalValue(line.lineAmount))
+          .input('totalHeaderQty', bcDecimalType(), bcDecimalValue(totalHeaderQty))
           .input('lineNo', sql.Int, line.lineNo)
           .input('type', sql.Int, 2)
           .input('billTo', sql.NVarChar, billTo)
@@ -2270,6 +2387,8 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             ${bracket('Type')},
             ${bracket('Executed')},
             ${bracket('Posted')},
+            ${bracket('ItemBlockedStatus')},
+            ${bracket('RevertFlag')},
             ${bracket('BillTo')},
             ${bracket('CUInvoiceNo')},
             ${bracket('CUNo')},
@@ -2285,16 +2404,18 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @shipToCode,
             @externalDocumentNo,
             @itemNo,
-            @quantity,
+            ${bcDecimalParameter('quantity')},
             @location,
             @unitOfMeasure,
-            @unitPrice,
+            ${bcDecimalParameter('unitPrice')},
             @shipToName,
-            @totalHeaderAmount,
-            @lineAmount,
-            @totalHeaderQty,
+            ${bcDecimalParameter('totalHeaderAmount')},
+            ${bcDecimalParameter('lineAmount')},
+            ${bcDecimalParameter('totalHeaderQty')},
             @lineNo,
             @type,
+            0,
+            0,
             0,
             0,
             @billTo,
@@ -2320,7 +2441,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('shipToCode', sql.NVarChar, shipToCode)
           .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
           .input('itemNo', sql.NVarChar, line.itemNo)
-          .input('quantity', sql.Decimal(38, 20), line.quantity)
+          .input('quantity', bcDecimalType(), bcDecimalValue(line.quantity))
           .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
           .input('shipToName', sql.NVarChar, shipToName)
           .input('lineNo', sql.Int, line.lineNo)
@@ -2356,7 +2477,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @shipToCode,
             @externalDocumentNo,
             @itemNo,
-            @quantity,
+            ${bcDecimalParameter('quantity')},
             @unitOfMeasure,
             @shipToName,
             @lineNo,
@@ -2376,7 +2497,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
           .input('shipToCode', sql.NVarChar, shipToCode)
           .input('externalDocumentNo', sql.NVarChar, externalDocumentNo)
           .input('itemNo', sql.NVarChar, line.itemNo)
-          .input('quantity', sql.Decimal(38, 20), line.quantity)
+          .input('quantity', bcDecimalType(), bcDecimalValue(line.quantity))
           .input('unitOfMeasure', sql.NVarChar, line.unitOfMeasure)
           .input('shipToName', sql.NVarChar, shipToName)
           .input('lineNo', sql.Int, line.lineNo)
@@ -2416,7 +2537,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
             @shipToCode,
             @externalDocumentNo,
             @itemNo,
-            @quantity,
+            ${bcDecimalParameter('quantity')},
             @unitOfMeasure,
             @shipToName,
             @lineNo,
@@ -2434,18 +2555,52 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
     }
 
     await transaction.commit();
-    return res.status(201).json({
+    return {
       company: company.code,
       documentType,
       externalDocumentNo,
       lineCount: lines.length,
       pdaOrder: documentType === 'order' ? pdaOrder : undefined,
       status: 'imported'
-    });
+    };
   } catch (err) {
     await transaction.rollback();
     throw err;
   }
+}
+
+router.post('/imported-orders', asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const orders = Array.isArray(body) ? body : Array.isArray(body.orders) ? body.orders : null;
+
+  if (!orders) {
+    return res.status(201).json(await stageImportedOrderSql(body));
+  }
+
+  if (!orders.length) {
+    return res.status(400).json({ error: 'Batch payload must contain at least one order.' });
+  }
+
+  const results = [];
+  for (const [index, order] of orders.entries()) {
+    try {
+      results.push(await stageImportedOrderSql(order));
+    } catch (err) {
+      err.details = {
+        ...(err.details || {}),
+        batchIndex: index,
+        externalDocumentNo: optionalString(order?.externalDocumentNo)
+      };
+      throw err;
+    }
+  }
+
+  return res.status(201).json({
+    batch: true,
+    count: results.length,
+    status: 'imported',
+    orders: results
+  });
 }));
 
 module.exports = router;

@@ -118,15 +118,35 @@ function normalizeCollection(payload) {
   return [];
 }
 
+function sortByLineNo(lines) {
+  return [...lines].sort((left, right) => {
+    const leftLineNo = Number(left.lineNo ?? left.LineNo ?? left['Line No_']);
+    const rightLineNo = Number(right.lineNo ?? right.LineNo ?? right['Line No_']);
+
+    if (Number.isFinite(leftLineNo) && Number.isFinite(rightLineNo)) {
+      return leftLineNo - rightLineNo;
+    }
+
+    if (Number.isFinite(leftLineNo)) {
+      return -1;
+    }
+
+    if (Number.isFinite(rightLineNo)) {
+      return 1;
+    }
+
+    return 0;
+  });
+}
+
 async function postLine(entitySetName, companyCode, line) {
   return requestJson('POST', entitySetName, companyCode, line);
 }
 
 async function getLinesByExternalDocumentNo(entitySetName, companyCode, fieldName, externalDocumentNo) {
-  return normalizeCollection(await requestJson('GET', entitySetName, companyCode, null, {
-    '$filter': `${fieldName} eq ${odataString(externalDocumentNo)}`,
-    '$orderby': 'lineNo'
-  }));
+  return sortByLineNo(normalizeCollection(await requestJson('GET', entitySetName, companyCode, null, {
+    '$filter': `${fieldName} eq ${odataString(externalDocumentNo)}`
+  })));
 }
 
 module.exports = {

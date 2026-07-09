@@ -256,7 +256,7 @@ GET /api/status/BOT-100045?company=RMK
   "sourceTable": "Sales Header",
   "documentNo": "SO-100045",
   "documentType": "Order",
-  "sellToCustomerNo": "90000",
+  "sellToCustomerNo": "101",
   "importedOrderState": "salesOrder",
   "statusCounts": {
     "Post": 2
@@ -321,7 +321,7 @@ GET /api/imported-orders/BOT-100045/status?company=FCL
   "lines": [
     {
       "lineNo": 10000,
-      "itemNo": "PDA001",
+      "itemNo": "J31010101",
       "quantity": 12,
       "status": 0,
       "statusName": "Order",
@@ -370,8 +370,8 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
       "sourceTable": "Imported SalesAL",
       "externalDocumentNo": "BOT-INV-100045",
       "lineNo": 10000,
-      "itemNo": "PDA001",
-      "errorMessage": "Item PDA001 was not found or is blocked."
+      "itemNo": "J31010101",
+      "errorMessage": "Item J31010101 was not found or is blocked."
     }
   ]
 }
@@ -384,29 +384,29 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
 Supported filters:
 
 ```http
-GET /api/customers?company=FCL&search=90000
-GET /api/customers?company=FCL&customerNo=90000&customerNo=90031
-GET /api/customers?company=FCL&customerNos=90000,90031
-GET /api/customers?company=FCL&customerNos=["90000","90031"]
+GET /api/customers?company=FCL&search=101
+GET /api/customers?company=FCL&customerNo=101&customerNo=102
+GET /api/customers?company=FCL&customerNos=101,102
+GET /api/customers?company=FCL&customerNos=["101","102"]
 GET /api/customers?company=FCL&name=Web
 GET /api/customers?company=FCL&customerName=Web
-GET /api/customers?company=FCL&shipToCode=NAIROBI
-GET /api/customers?company=FCL&shipTo=NAIROBI
-GET /api/customers?company=FCL&shipToName=Nairobi
+GET /api/customers?company=FCL&shipToCode=101
+GET /api/customers?company=FCL&shipTo=101
+GET /api/customers?company=FCL&shipToName=BRAEBURN
 ```
 
 ```json
 {
   "data": [
     {
-      "id": "90000",
-      "customerNo": "90000",
-      "name": "Web Customer Ltd",
+      "id": "101",
+      "customerNo": "101",
+      "name": "Braeburn School",
       "sector": "HORECA",
       "shipTo": [
         {
-          "code": "NAIROBI",
-          "name": "Nairobi Outlet"
+          "code": "101",
+          "name": "BRAEBURN SCHOOL"
         }
       ]
     }
@@ -422,13 +422,13 @@ Supported filters:
 
 ```http
 GET /api/items?company=FCL&search=beef
-GET /api/items?company=FCL&itemNo=PDA001&itemNo=PDA002
-GET /api/items?company=FCL&itemNos=PDA001,PDA002
-GET /api/items?company=FCL&itemNos=["PDA001","PDA002"]
+GET /api/items?company=FCL&itemNo=J31010101&itemNo=J31010201
+GET /api/items?company=FCL&itemNos=J31010101,J31010201
+GET /api/items?company=FCL&itemNos=["J31010101","J31010201"]
 GET /api/items?company=FCL&barcode=616000
 GET /api/items?company=FCL&barcodeNo=6160001234567
 GET /api/items?company=FCL&barcodeText=6160001234567
-GET /api/items?company=FCL&uom=KG
+GET /api/items?company=FCL&uom=PC
 GET /api/items?company=FCL&baseUnitOfMeasure=KG
 GET /api/items?company=FCL&salesUnitOfMeasure=BAG
 GET /api/items?company=FCL&description=beef
@@ -440,13 +440,13 @@ GET /api/items?company=FCL&barcodeType=0
   "company": "FCL",
   "data": [
     {
-      "id": "PDA001",
-      "itemNo": "PDA001",
-      "description": "PDA Beef Pack",
+      "id": "J31010101",
+      "itemNo": "J31010101",
+      "description": "Pork Chipolatas 200gms",
       "baseUnitOfMeasure": "KG",
-      "salesUnitOfMeasure": "KG",
-      "barcodeNo": "6160001234567",
-      "barcodeText": "6160001234567",
+      "salesUnitOfMeasure": "PC",
+      "barcodeNo": "",
+      "barcodeText": "",
       "barcodeType": 0
     }
   ]
@@ -484,12 +484,12 @@ limit
   "data": [
     {
       "salespersonCode": "019",
-      "name": "Jane Sales",
-      "currentRoute": "RT001",
+      "name": "Direct Sales",
+      "currentRoute": "R075",
       "route": {
-        "code": "RT001",
-        "districtGroupCode": "RT001",
-        "name": "Nairobi CBD",
+        "code": "R075",
+        "districtGroupCode": "R075",
+        "name": "Direct Sales",
         "paymentType": "Till",
         "payBill": "123456",
         "mpesaTill": "123456",
@@ -500,19 +500,19 @@ limit
       "contacts": [
         {
           "code": "CT000123",
-          "name": "Jane Sales",
+          "name": "Direct Sales",
           "phone": "+254700000000"
         }
       ],
       "shipTo": [
         {
-          "customerNo": "90000",
-          "code": "NAIROBI",
-          "name": "Nairobi Outlet",
+          "customerNo": "101",
+          "code": "101",
+          "name": "BRAEBURN SCHOOL",
           "route": {
-            "code": "RT001",
-            "districtGroupCode": "RT001",
-            "name": "Nairobi CBD",
+            "code": "R075",
+            "districtGroupCode": "R075",
+            "name": "Direct Sales",
             "paymentType": "Till",
             "payBill": "123456",
             "mpesaTill": "123456",
@@ -551,8 +551,8 @@ Examples:
 
 ```http
 GET /api/imported-orders?externalDocumentNo=BOT-100045
-GET /api/imported-orders?customerNo=90000&shipmentDate=2026-06-22
-GET /api/imported-orders?salespersonCode=019&shipToCode=NAIROBI&status=Order
+GET /api/imported-orders?customerNo=101&shipmentDate=2026-06-22
+GET /api/imported-orders?salespersonCode=019&shipToCode=101&status=Order
 GET /api/imported-orders?shipmentDateFrom=2026-06-01&shipmentDateTo=2026-06-30&limit=500
 GET /api/imported-orders?company=RMK&externalDocumentNo=BOT-100045
 ```
@@ -571,11 +571,11 @@ Error = 4
 {
   "documentType": "order",
   "externalDocumentNo": "BOT-100045",
-  "sellToCustomerNo": "90000",
+  "sellToCustomerNo": "101",
   "shipmentDate": "2026-06-22",
   "salespersonCode": "019",
-  "shipToCode": "NAIROBI",
-  "shipToName": "Nairobi Outlet",
+  "shipToCode": "101",
+  "shipToName": "BRAEBURN SCHOOL",
   "customerSpecification": "No onions",
   "company": "FCL",
   "pdaOrder": false,
@@ -583,10 +583,17 @@ Error = 4
   "lines": [
     {
       "lineNo": 10000,
-      "itemNo": "PDA001",
+      "itemNo": "J31010101",
       "quantity": 12,
-      "unitOfMeasure": "KG",
+      "unitOfMeasure": "PC",
       "productSpecification": "Vacuum packed"
+    },
+    {
+      "lineNo": 20000,
+      "itemNo": "J31010201",
+      "quantity": 5,
+      "unitOfMeasure": "PC",
+      "productSpecification": "Tray packed"
     }
   ]
 }
@@ -611,24 +618,24 @@ The API automatically stamps `Expected Line Count` on every staged line from `li
   "documentType": "invoice",
   "company": "FCL",
   "externalDocumentNo": "BOT-INV-100045",
-  "sellToCustomerNo": "90000",
+  "sellToCustomerNo": "101",
   "shipmentDate": "2026-06-22",
   "salespersonCode": "019",
-  "shipToCode": "NAIROBI",
-  "shipToName": "Nairobi Outlet",
+  "shipToCode": "101",
+  "shipToName": "BRAEBURN SCHOOL",
   "location": "3535",
   "totalHeaderAmount": 1972,
   "totalHeaderQty": 17,
-  "billTo": "90000",
+  "billTo": "101",
   "cuInvoiceNo": "CU-100045",
   "cuNo": "ETR-01",
   "signingTime": "2026-06-22T10:15:00",
   "lines": [
     {
       "lineNo": 10000,
-      "itemNo": "PDA001",
+      "itemNo": "J31010101",
       "quantity": 12,
-      "unitOfMeasure": "KG",
+      "unitOfMeasure": "PC",
       "unitPrice": 116,
       "lineAmount": 1392,
       "location": "3535"
@@ -644,18 +651,18 @@ For return orders, use `documentType = returnOrder`. You can pass `returnReasonC
   "company": "FCL",
   "documentType": "returnOrder",
   "externalDocumentNo": "BOT-RET-100045",
-  "sellToCustomerNo": "90000",
+  "sellToCustomerNo": "101",
   "shipmentDate": "2026-06-22",
   "salespersonCode": "019",
-  "shipToCode": "NAIROBI",
+  "shipToCode": "101",
   "returnReasonCode": "DAMAGED",
   "originalOrderNo": "BOT-100045",
   "lines": [
     {
       "lineNo": 10000,
-      "itemNo": "PDA001",
+      "itemNo": "J31010101",
       "quantity": 2,
-      "unitOfMeasure": "KG"
+      "unitOfMeasure": "PC"
     }
   ]
 }
@@ -668,18 +675,18 @@ For credit notes, use `documentType = creditNote`. Credit-note lines require `un
   "company": "FCL",
   "documentType": "creditNote",
   "externalDocumentNo": "BOT-CN-100045",
-  "sellToCustomerNo": "90000",
+  "sellToCustomerNo": "101",
   "shipmentDate": "2026-06-22",
   "salespersonCode": "019",
-  "shipToCode": "NAIROBI",
+  "shipToCode": "101",
   "taxAppliedDocumentNo": "CU-INV-100045",
   "returnReasonCode": "DAMAGED",
   "lines": [
     {
       "lineNo": 10000,
-      "itemNo": "PDA001",
+      "itemNo": "J31010101",
       "quantity": 2,
-      "unitOfMeasure": "KG",
+      "unitOfMeasure": "PC",
       "unitPrice": 116
     }
   ]
