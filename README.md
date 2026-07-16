@@ -173,6 +173,7 @@ POST /api/status/batch
 GET  /api/customers
 GET  /api/items
 GET  /api/salespeople
+GET  /api/historical-sales-invoice-lines
 GET  /api/imported-orders
 POST /api/imported-orders
 POST /api/bc-api/imported-orders
@@ -406,7 +407,16 @@ GET /api/customers?company=FCL&shipToName=BRAEBURN
       "shipTo": [
         {
           "code": "101",
-          "name": "BRAEBURN SCHOOL"
+          "name": "BRAEBURN SCHOOL",
+          "route": {
+            "code": "R075",
+            "districtGroupCode": "R075",
+            "name": "Direct Sales",
+            "paymentType": "Till",
+            "payBill": "123456",
+            "mpesaTill": "123456",
+            "mpesaPaybill": ""
+          }
         }
       ]
     }
@@ -525,6 +535,24 @@ limit
     }
   ]
 }
+```
+
+## Historical Posted Sales Invoice Lines
+
+`GET /api/historical-sales-invoice-lines` returns historical posted sales invoice line data from Business Central `Sales Invoice Line`, joined to `Sales Invoice Header` for posting date, customer, ship-to, salesperson, and BOT external document number.
+
+Supported filters:
+
+```http
+GET /api/historical-sales-invoice-lines?company=FCL&externalDocumentNo=BOT-100045
+GET /api/historical-sales-invoice-lines?company=FCL&customerNo=101&postingDateFrom=2026-06-01&postingDateTo=2026-06-30
+GET /api/historical-sales-invoice-lines?company=FCL&itemNo=J31010101&limit=500
+```
+
+If the posted line table cannot be resolved automatically, set:
+
+```env
+SQL_TABLE_SALES_INVOICE_LINE=FCL1$Sales Invoice Line
 ```
 
 ## Imported Sales Document Payload

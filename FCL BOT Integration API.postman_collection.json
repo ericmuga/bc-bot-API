@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "e41f9b8f-0ea1-4b4d-9f0a-1b858c7f2e90",
     "name": "FCL BOT Integration API",
-    "description": "Postman collection for the FCL BOT Integration API. Orders are staged into Business Central Imported Orders; customers and items are read-only.",
+    "description": "Postman collection for the FCL BOT Integration API. Sales documents are staged into Business Central imported tables; master data and posted sales invoice history are read-only.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -125,6 +125,22 @@
     {
       "key": "uom",
       "value": "PC"
+    },
+    {
+      "key": "invoiceNo",
+      "value": "PSI-100045"
+    },
+    {
+      "key": "postingDate",
+      "value": "2026-06-22"
+    },
+    {
+      "key": "postingDateFrom",
+      "value": "2026-06-01"
+    },
+    {
+      "key": "postingDateTo",
+      "value": "2026-06-30"
     }
   ],
   "item": [
@@ -1562,6 +1578,100 @@
                   "  pm.expect(json.statusCounts).to.be.an('object');",
                   "  pm.expect(json.salesDocuments).to.be.an('object');",
                   "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Historical Posted Sales Invoice Lines",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/historical-sales-invoice-lines?company={{company}}&externalDocumentNo={{externalDocumentNo}}&postingDateFrom={{postingDateFrom}}&postingDateTo={{postingDateTo}}&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "historical-sales-invoice-lines"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "externalDocumentNo",
+                  "value": "{{externalDocumentNo}}"
+                },
+                {
+                  "key": "invoiceNo",
+                  "value": "{{invoiceNo}}",
+                  "disabled": true
+                },
+                {
+                  "key": "customerNo",
+                  "value": "{{customerNo}}",
+                  "disabled": true
+                },
+                {
+                  "key": "postingDate",
+                  "value": "{{postingDate}}",
+                  "disabled": true
+                },
+                {
+                  "key": "postingDateFrom",
+                  "value": "{{postingDateFrom}}"
+                },
+                {
+                  "key": "postingDateTo",
+                  "value": "{{postingDateTo}}"
+                },
+                {
+                  "key": "salespersonCode",
+                  "value": "{{salespersonCode}}",
+                  "disabled": true
+                },
+                {
+                  "key": "shipToCode",
+                  "value": "{{shipToCode}}",
+                  "disabled": true
+                },
+                {
+                  "key": "itemNo",
+                  "value": "{{itemNo}}",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Reads posted Sales Invoice Line history joined to Sales Invoice Header. Use this after a BOT order or invoice has posted and left staging/Sales Header."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Posted sales invoice history response is shaped\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get(\"company\") || pm.variables.get(\"company\"));",
+                  "  pm.expect(json.count).to.be.a(\"number\");",
+                  "  pm.expect(json.totalCount).to.be.a(\"number\");",
+                  "  pm.expect(json.data).to.be.an(\"array\");",
+                  "  if (json.data.length) {",
+                  "    pm.expect(json.data[0]).to.have.property(\"invoiceNo\");",
+                  "    pm.expect(json.data[0]).to.have.property(\"externalDocumentNo\");",
+                  "    pm.expect(json.data[0]).to.have.property(\"itemNo\");",
+                  "  }",
                   "});"
                 ]
               }

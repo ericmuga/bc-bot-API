@@ -1160,6 +1160,15 @@ function addImportedOrderFilter(filters, request, query, queryName, sqlType, col
   filters.push(`${bracket(columnName)} = @${parameterName}`);
 }
 
+function addAliasedFilter(filters, request, query, queryName, sqlType, qualifiedColumn, parameterName = queryName) {
+  const value = optionalString(query[queryName]);
+  if (!value) {
+    return;
+  }
+
+  request.input(parameterName, sqlType, value);
+  filters.push(`${qualifiedColumn} = @${parameterName}`);
+}
 router.get('/health', asyncHandler(async (req, res) => {
   const pool = await getPool();
   await pool.request().query('SELECT 1 AS ok');
@@ -1263,7 +1272,7 @@ router.get('/:company/status/:externalDocumentNo', asyncHandler(async (req, res)
 router.get('/customers', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
-  const { customer, customerExt, shipToAddress } = await getTables(companyCode);
+  const { customer, customerExt, shipToAddress, shipToAddressExt, districtGroupCode } = await getTables(companyCode);
   const pagination = paginationFromQuery(req.query);
   const search = optionalString(req.query.search);
 
@@ -1292,6 +1301,39 @@ router.get('/customers', asyncHandler(async (req, res) => {
     : customerBaseWebPortalColumn
       ? `AND c.${bracket(customerBaseWebPortalColumn)} = 1`
       : '';
+  const shipToColumns = await getExistingColumns(pool, shipToAddress, ['Customer No_', 'Code', 'Name', 'Route Code']);
+  const routeCodeExtColumn = shipToAddressExt
+    ? await getExistingColumnName(pool, shipToAddressExt, 'Route Code')
+    : '';
+  const routeCodeBaseColumn = routeCodeExtColumn
+    ? ''
+    : shipToColumns.has('Route Code') ? 'Route Code' : '';
+  const routeCodeAlias = routeCodeExtColumn ? 'ste' : 'sta';
+  const routeCodeColumn = routeCodeExtColumn || routeCodeBaseColumn;
+  const routeCodeExpression = routeCodeColumn
+    ? `${routeCodeAlias}.${bracket(routeCodeColumn)}`
+    : `CAST('' AS nvarchar(100))`;
+  const shipToExtJoin = routeCodeExtColumn
+    ? `LEFT JOIN ${shipToAddressExt} ste
+      ON ste.${bracket('Customer No_')} = sta.${bracket('Customer No_')}
+      AND ste.${bracket('Code')} = sta.${bracket('Code')}`
+    : '';
+  const routeColumns = districtGroupCode
+    ? await getExistingColumns(pool, districtGroupCode, ['Code', 'Description', 'Pay Bill', 'Type'])
+    : new Set();
+  const canJoinRoute = districtGroupCode && routeCodeColumn && routeColumns.has('Code');
+  const routeJoin = canJoinRoute
+    ? `LEFT JOIN ${districtGroupCode} rt ON rt.${bracket('Code')} = ${routeCodeExpression}`
+    : '';
+  const routeNameSelect = canJoinRoute && routeColumns.has('Description')
+    ? `rt.${bracket('Description')} AS routeName`
+    : `CAST('' AS nvarchar(100)) AS routeName`;
+  const routePayBillSelect = canJoinRoute && routeColumns.has('Pay Bill')
+    ? `rt.${bracket('Pay Bill')} AS routePayBill`
+    : `CAST('' AS nvarchar(100)) AS routePayBill`;
+  const routeTypeSelect = canJoinRoute && routeColumns.has('Type')
+    ? `rt.${bracket('Type')} AS routeType`
+    : `CAST(NULL AS int) AS routeType`;
   const blockedColumn = await getExistingColumnName(pool, customer, 'Blocked');
   const blockedClause = blockedColumn ? `AND c.${bracket(blockedColumn)} = 0` : '';
   const request = pool.request()
@@ -1364,10 +1406,16 @@ router.get('/customers', asyncHandler(async (req, res) => {
       fc.sector,
       fc.totalCount,
       sta.${bracket('Code')} AS shipToCode,
-      sta.${bracket('Name')} AS shipToName
+      sta.${bracket('Name')} AS shipToName,
+      ${routeCodeExpression} AS routeCode,
+      ${routeNameSelect},
+      ${routePayBillSelect},
+      ${routeTypeSelect}
     FROM FilteredCustomers fc
     LEFT JOIN ${shipToAddress} sta
       ON sta.${bracket('Customer No_')} = fc.customerNo
+    ${shipToExtJoin}
+    ${routeJoin}
     ORDER BY fc.customerNo, sta.${bracket('Code')}
   `);
 
@@ -1390,9 +1438,21 @@ router.get('/customers', asyncHandler(async (req, res) => {
     }
 
     if (row.shipToCode) {
+      const paymentType = routePaymentTypeName(row.routeType);
+      const mpesaTill = paymentType === 'Till' ? row.routePayBill || '' : '';
+      const mpesaPaybill = paymentType === 'Paybill' ? row.routePayBill || '' : '';
       customerRow.shipTo.push({
         code: row.shipToCode,
-        name: row.shipToName || ''
+        name: row.shipToName || '',
+        route: {
+          code: row.routeCode || '',
+          districtGroupCode: row.routeCode || '',
+          name: row.routeName || '',
+          paymentType,
+          payBill: row.routePayBill || '',
+          mpesaTill,
+          mpesaPaybill
+        }
       });
     }
   }
@@ -1928,6 +1988,87 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
   res.json(paginatedResponse(companyCode, salespeople, pagination, totalCount));
 }));
 
+async function listHistoricalSalesInvoiceLines(req, res) {
+  const pool = await getPool();
+  const companyCode = companyFromRequest(req);
+  const tables = await getTables(companyCode);
+  const pagination = paginationFromQuery(req.query);
+  const request = pool.request()
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset);
+  const filters = [];
+
+  addAliasedFilter(filters, request, req.query, 'externalDocumentNo', sql.NVarChar, `h.${bracket('External Document No_')}`);
+  addAliasedFilter(filters, request, req.query, 'invoiceNo', sql.NVarChar, `h.${bracket('No_')}`);
+  addAliasedFilter(filters, request, req.query, 'documentNo', sql.NVarChar, `h.${bracket('No_')}`, 'documentNo');
+  addAliasedFilter(filters, request, req.query, 'sellToCustomerNo', sql.NVarChar, `h.${bracket('Sell-to Customer No_')}`);
+  addAliasedFilter(filters, request, req.query, 'customerNo', sql.NVarChar, `h.${bracket('Sell-to Customer No_')}`, 'customerNo');
+  addAliasedFilter(filters, request, req.query, 'salespersonCode', sql.NVarChar, `h.${bracket('Salesperson Code')}`);
+  addAliasedFilter(filters, request, req.query, 'shipToCode', sql.NVarChar, `h.${bracket('Ship-to Code')}`);
+  addAliasedFilter(filters, request, req.query, 'itemNo', sql.NVarChar, `l.${bracket('No_')}`);
+
+  if (optionalString(req.query.postingDate)) {
+    request.input('postingDate', sql.Date, toBcDate(req.query.postingDate, 'postingDate'));
+    filters.push(`h.${bracket('Posting Date')} = @postingDate`);
+  }
+
+  if (optionalString(req.query.postingDateFrom)) {
+    request.input('postingDateFrom', sql.Date, toBcDate(req.query.postingDateFrom, 'postingDateFrom'));
+    filters.push(`h.${bracket('Posting Date')} >= @postingDateFrom`);
+  }
+
+  if (optionalString(req.query.postingDateTo)) {
+    request.input('postingDateTo', sql.Date, toBcDate(req.query.postingDateTo, 'postingDateTo'));
+    filters.push(`h.${bracket('Posting Date')} <= @postingDateTo`);
+  }
+
+  const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const result = await request.query(`
+    WITH MatchingPostedInvoiceLines AS (
+      SELECT
+        h.${bracket('No_')} AS invoiceNo,
+        h.${bracket('Posting Date')} AS postingDate,
+        h.${bracket('External Document No_')} AS externalDocumentNo,
+        h.${bracket('Sell-to Customer No_')} AS sellToCustomerNo,
+        h.${bracket('Bill-to Customer No_')} AS billToCustomerNo,
+        h.${bracket('Salesperson Code')} AS salespersonCode,
+        h.${bracket('Ship-to Code')} AS shipToCode,
+        h.${bracket('Ship-to Name')} AS shipToName,
+        l.${bracket('Line No_')} AS lineNo,
+        l.${bracket('Type')} AS lineType,
+        l.${bracket('No_')} AS itemNo,
+        l.${bracket('Description')} AS description,
+        l.${bracket('Quantity')} AS quantity,
+        l.${bracket('Unit of Measure Code')} AS unitOfMeasure,
+        l.${bracket('Unit Price')} AS unitPrice,
+        l.${bracket('Line Amount')} AS lineAmount,
+        l.${bracket('Amount Including VAT')} AS amountIncludingVat,
+        l.${bracket('VAT %')} AS vatPercent
+      FROM ${tables.salesInvoiceLine} l
+      INNER JOIN ${tables.salesInvoiceHeader} h
+        ON h.${bracket('No_')} = l.${bracket('Document No_')}
+      ${whereClause}
+    ),
+    NumberedPostedInvoiceLines AS (
+      SELECT
+        *,
+        COUNT(*) OVER() AS totalCount,
+        ROW_NUMBER() OVER (ORDER BY ${bracket('postingDate')} DESC, ${bracket('invoiceNo')} DESC, ${bracket('lineNo')}) AS rowNumber
+      FROM MatchingPostedInvoiceLines
+    )
+    SELECT *
+    FROM NumberedPostedInvoiceLines
+    WHERE rowNumber > @offset AND rowNumber <= (@offset + @limit)
+    ORDER BY rowNumber
+  `);
+
+  const totalCount = result.recordset[0]?.totalCount || 0;
+  const data = result.recordset.map(({ totalCount: _totalCount, rowNumber: _rowNumber, ...line }) => line);
+
+  return res.json(paginatedResponse(companyCode, data, pagination, totalCount));
+}
+
+router.get('/historical-sales-invoice-lines', asyncHandler(listHistoricalSalesInvoiceLines));
 router.get('/imported-orders', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);

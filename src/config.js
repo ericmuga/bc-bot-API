@@ -111,6 +111,7 @@ const config = {
     salesHeader: process.env.SQL_TABLE_SALES_HEADER || '',
     salesHeaderExt: process.env.SQL_TABLE_SALES_HEADER_EXT || '',
     salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || '',
+    salesInvoiceLine: process.env.SQL_TABLE_SALES_INVOICE_LINE || '',
     salesCrMemoHeader: process.env.SQL_TABLE_SALES_CR_MEMO_HEADER || ''
   },
   bcApi: {

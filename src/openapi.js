@@ -103,7 +103,19 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               type: 'object',
               properties: {
                 code: { type: 'string', example: '101' },
-                name: { type: 'string', example: 'BRAEBURN SCHOOL' }
+                name: { type: 'string', example: 'BRAEBURN SCHOOL' },
+                route: {
+                  type: 'object',
+                  properties: {
+                    code: { type: 'string', example: 'R075' },
+                    districtGroupCode: { type: 'string', example: 'R075', description: 'Same value as route code; Business Central stores route as District Group Code.' },
+                    name: { type: 'string', example: 'Direct Sales' },
+                    paymentType: { type: 'string', example: 'Till' },
+                    payBill: { type: 'string', example: '123456' },
+                    mpesaTill: { type: 'string', example: '123456' },
+                    mpesaPaybill: { type: 'string', example: '' }
+                  }
+                }
               }
             }
           }
@@ -161,6 +173,18 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                 customerNo: { type: 'string', example: '101' },
                 code: { type: 'string', example: '101' },
                 name: { type: 'string', example: 'BRAEBURN SCHOOL' },
+                route: {
+                  type: 'object',
+                  properties: {
+                    code: { type: 'string', example: 'R075' },
+                    districtGroupCode: { type: 'string', example: 'R075', description: 'Same value as route code; Business Central stores route as District Group Code.' },
+                    name: { type: 'string', example: 'Direct Sales' },
+                    paymentType: { type: 'string', example: 'Till' },
+                    payBill: { type: 'string', example: '123456' },
+                    mpesaTill: { type: 'string', example: '123456' },
+                    mpesaPaybill: { type: 'string', example: '' }
+                  }
+                },
                 route: {
                   type: 'object',
                   properties: {
@@ -636,6 +660,79 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               }
             }
           }
+        }
+      }
+    },
+    '/api/historical-sales-invoice-lines': {
+      get: {
+        summary: 'List historical posted sales invoice lines',
+        description: 'Reads posted Sales Invoice Line history joined to Sales Invoice Header. Use this for posted invoice history after a BOT invoice/order has left staging or Sales Header.',
+        parameters: [
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          { name: 'externalDocumentNo', in: 'query', schema: { type: 'string' }, description: 'BOT external document number from Sales Invoice Header.' },
+          { name: 'invoiceNo', in: 'query', schema: { type: 'string' }, description: 'Posted sales invoice number.' },
+          { name: 'documentNo', in: 'query', schema: { type: 'string' }, description: 'Alias for invoiceNo.' },
+          { name: 'customerNo', in: 'query', schema: { type: 'string' }, description: 'Alias for sellToCustomerNo.' },
+          { name: 'sellToCustomerNo', in: 'query', schema: { type: 'string' } },
+          { name: 'postingDate', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Exact posting date, YYYY-MM-DD.' },
+          { name: 'postingDateFrom', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Posting date lower bound, YYYY-MM-DD.' },
+          { name: 'postingDateTo', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Posting date upper bound, YYYY-MM-DD.' },
+          { name: 'salespersonCode', in: 'query', schema: { type: 'string' } },
+          { name: 'shipToCode', in: 'query', schema: { type: 'string' } },
+          { name: 'itemNo', in: 'query', schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+        ],
+        responses: {
+          200: {
+            description: 'Posted sales invoice line history',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 25 },
+                    totalCount: { type: 'integer', example: 250 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 100 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 3 },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          invoiceNo: { type: 'string', example: 'PSI-100045' },
+                          postingDate: { type: 'string', format: 'date' },
+                          externalDocumentNo: { type: 'string', example: 'BOT-100045' },
+                          sellToCustomerNo: { type: 'string', example: '101' },
+                          billToCustomerNo: { type: 'string', example: '101' },
+                          salespersonCode: { type: 'string', example: '019' },
+                          shipToCode: { type: 'string', example: '101' },
+                          shipToName: { type: 'string', example: 'BRAEBURN SCHOOL' },
+                          lineNo: { type: 'integer', example: 10000 },
+                          lineType: { type: 'integer', example: 2 },
+                          itemNo: { type: 'string', example: 'J31010101' },
+                          description: { type: 'string', example: 'Pork Chipolatas 200gms' },
+                          quantity: { type: 'number', example: 12 },
+                          unitOfMeasure: { type: 'string', example: 'PC' },
+                          unitPrice: { type: 'number', example: 116 },
+                          lineAmount: { type: 'number', example: 1392 },
+                          amountIncludingVat: { type: 'number', example: 1614.72 },
+                          vatPercent: { type: 'number', example: 16 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Invalid filter' }
         }
       }
     },

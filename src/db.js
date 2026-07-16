@@ -158,6 +158,7 @@ async function getTables(companyCode) {
     salesHeader,
     salesHeaderExt,
     salesInvoiceHeader,
+    salesInvoiceLine,
     salesCrMemoHeader
   ] = await Promise.all([
     resolveTable('Imported Orders', config.tables.importedOrders, companyCode),
@@ -180,6 +181,7 @@ async function getTables(companyCode) {
     resolveTable('Sales Header', config.tables.salesHeader, companyCode),
     resolveOptionalTable(`Sales Header$${BASE_APP_ID}$ext`, config.tables.salesHeaderExt, companyCode),
     resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode),
+    resolveTable('Sales Invoice Line', config.tables.salesInvoiceLine, companyCode),
     resolveFirstTable(['Sales Cr.Memo Header', 'Sales Cr_Memo Header', 'Sales Cr_ Memo Header'], config.tables.salesCrMemoHeader, companyCode)
   ]);
 
@@ -201,6 +203,7 @@ async function getTables(companyCode) {
     salesHeader,
     salesHeaderExt,
     salesInvoiceHeader,
+    salesInvoiceLine,
     salesCrMemoHeader
   };
 }
