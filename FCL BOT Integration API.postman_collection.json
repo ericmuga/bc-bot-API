@@ -977,7 +977,7 @@
                 }
               ]
             },
-            "description": "Reads PDA items for the selected company using broad item number/description search. Response includes barcodeNo, barcodeText, and barcodeType."
+            "description": "Reads PDA items for the selected company using broad item number/description search. Response includes barcodeNo."
           },
           "event": [
             {
@@ -985,7 +985,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Items response has barcode payload fields', function () {",
+                  "pm.test(\"Items response has barcodeNo field\", function () {",
                   "  pm.response.to.have.status(200);",
                   "  const json = pm.response.json();",
                   "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
@@ -999,8 +999,6 @@
                   "  if (json.data.length) {",
                   "    pm.expect(json.data[0]).to.have.property('itemNo');",
                   "    pm.expect(json.data[0]).to.have.property('barcodeNo');",
-                  "    pm.expect(json.data[0]).to.have.property('barcodeText');",
-                  "    pm.expect(json.data[0]).to.have.property('barcodeType');",
                   "  }",
                   "});"
                 ]
@@ -1141,7 +1139,7 @@
                 }
               ]
             },
-            "description": "Filters PDA items by partial barcodeNo or barcodeText."
+            "description": "Filters PDA items by partial barcodeNo."
           },
           "response": []
         },

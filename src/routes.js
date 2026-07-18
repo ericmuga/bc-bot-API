@@ -1490,22 +1490,12 @@ router.get('/items', asyncHandler(async (req, res) => {
       ? `AND i.${bracket(itemBasePdaItemColumn)} = 1`
       : '';
   const barcodeNoExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code No_') : '';
-  const barcodeTextExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code Text') : '';
-  const barcodeTypeExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code Type') : '';
   const barcodeNoBaseColumn = barcodeNoExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code No_');
-  const barcodeTextBaseColumn = barcodeTextExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code Text');
-  const barcodeTypeBaseColumn = barcodeTypeExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code Type');
   const barcodeNoColumn = barcodeNoExtColumn || barcodeNoBaseColumn;
-  const barcodeTextColumn = barcodeTextExtColumn || barcodeTextBaseColumn;
-  const barcodeTypeColumn = barcodeTypeExtColumn || barcodeTypeBaseColumn;
   const barcodeNoAlias = barcodeNoExtColumn ? 'ie' : 'i';
-  const barcodeTextAlias = barcodeTextExtColumn ? 'ie' : 'i';
-  const barcodeTypeAlias = barcodeTypeExtColumn ? 'ie' : 'i';
   const blockedColumn = await getExistingColumnName(pool, item, 'Blocked');
   const blockedClause = blockedColumn ? `AND i.${bracket(blockedColumn)} = 0` : '';
   const barcodeNoSelect = barcodeNoColumn ? `${barcodeNoAlias}.${bracket(barcodeNoColumn)}` : `CAST('' AS nvarchar(100))`;
-  const barcodeTextSelect = barcodeTextColumn ? `${barcodeTextAlias}.${bracket(barcodeTextColumn)}` : `CAST('' AS nvarchar(250))`;
-  const barcodeTypeSelect = barcodeTypeColumn ? `${barcodeTypeAlias}.${bracket(barcodeTypeColumn)}` : `CAST(0 AS int)`;
   const request = pool.request()
     .input('limit', sql.Int, pagination.limit)
     .input('offset', sql.Int, pagination.offset)
@@ -1518,8 +1508,6 @@ router.get('/items', asyncHandler(async (req, res) => {
   const salesUnitOfMeasure = optionalString(req.query.salesUnitOfMeasure);
   const barcode = optionalString(req.query.barcode);
   const barcodeNo = optionalString(req.query.barcodeNo);
-  const barcodeText = optionalString(req.query.barcodeText);
-  const barcodeType = optionalString(req.query.barcodeType);
 
   if (itemNos.length) {
     const itemNoParams = itemNos.map((itemNo, index) => {
@@ -1551,17 +1539,14 @@ router.get('/items', asyncHandler(async (req, res) => {
   }
 
   if (barcode) {
-    if (!barcodeNoColumn && !barcodeTextColumn) {
-      const error = new Error('Barcode filtering is not available because the Item extension barcode columns could not be resolved.');
+    if (!barcodeNoColumn) {
+      const error = new Error('Barcode filtering is not available because Bar Code No. could not be resolved on the Item extension table.');
       error.statusCode = 503;
       throw error;
     }
 
     request.input('barcode', sql.NVarChar, `%${barcode}%`);
-    filters.push(`(${[
-      barcodeNoColumn ? `${barcodeNoAlias}.${bracket(barcodeNoColumn)} LIKE @barcode` : '',
-      barcodeTextColumn ? `${barcodeTextAlias}.${bracket(barcodeTextColumn)} LIKE @barcode` : ''
-    ].filter(Boolean).join(' OR ')})`);
+    filters.push(`${barcodeNoAlias}.${bracket(barcodeNoColumn)} LIKE @barcode`);
   }
 
   if (barcodeNo) {
@@ -1573,35 +1558,6 @@ router.get('/items', asyncHandler(async (req, res) => {
 
     request.input('barcodeNo', sql.NVarChar, `%${barcodeNo}%`);
     filters.push(`${barcodeNoAlias}.${bracket(barcodeNoColumn)} LIKE @barcodeNo`);
-  }
-
-  if (barcodeText) {
-    if (!barcodeTextColumn) {
-      const error = new Error('barcodeText filtering is not available because Bar Code Text could not be resolved on the Item extension table.');
-      error.statusCode = 503;
-      throw error;
-    }
-
-    request.input('barcodeText', sql.NVarChar, `%${barcodeText}%`);
-    filters.push(`${barcodeTextAlias}.${bracket(barcodeTextColumn)} LIKE @barcodeText`);
-  }
-
-  if (barcodeType) {
-    if (!barcodeTypeColumn) {
-      const error = new Error('barcodeType filtering is not available because Bar Code Type could not be resolved on the Item extension table.');
-      error.statusCode = 503;
-      throw error;
-    }
-
-    const barcodeTypeValue = Number.parseInt(barcodeType, 10);
-    if (!Number.isInteger(barcodeTypeValue)) {
-      const error = new Error('barcodeType must be an integer.');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    request.input('barcodeType', sql.Int, barcodeTypeValue);
-    filters.push(`${barcodeTypeAlias}.${bracket(barcodeTypeColumn)} = @barcodeType`);
   }
 
   const searchClause = search
@@ -1617,9 +1573,7 @@ router.get('/items', asyncHandler(async (req, res) => {
         i.${bracket('Description')} AS description,
         i.${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
         i.${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure,
-        ${barcodeNoSelect} AS barcodeNo,
-        ${barcodeTextSelect} AS barcodeText,
-        ${barcodeTypeSelect} AS barcodeType
+        ${barcodeNoSelect} AS barcodeNo
       FROM ${item} i
       ${itemExtJoin}
       WHERE 1 = 1

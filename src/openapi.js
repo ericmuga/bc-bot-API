@@ -130,8 +130,6 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           baseUnitOfMeasure: { type: 'string', example: 'KG' },
           salesUnitOfMeasure: { type: 'string', example: 'PC' },
           barcodeNo: { type: 'string', example: '' },
-          barcodeText: { type: 'string', example: '' },
-          barcodeType: { type: 'integer', example: 0 }
         }
       },
       Salesperson: {
@@ -568,7 +566,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         ],
         responses: {
           200: {
-            description: 'Filtered PDA item list with barcode fields',
+            description: 'Filtered PDA item list',
             content: {
               'application/json': {
                 schema: {

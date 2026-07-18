@@ -426,7 +426,7 @@ GET /api/customers?company=FCL&shipToName=BRAEBURN
 
 ## Item Payload
 
-`GET /api/items` returns PDA items only and includes barcode values from the Business Central Item extension table:
+`GET /api/items` returns PDA items only and includes `barcodeNo` from the Business Central Item extension table:
 
 Supported filters:
 
@@ -437,12 +437,10 @@ GET /api/items?company=FCL&itemNos=J31010101,J31010201
 GET /api/items?company=FCL&itemNos=["J31010101","J31010201"]
 GET /api/items?company=FCL&barcode=616000
 GET /api/items?company=FCL&barcodeNo=6160001234567
-GET /api/items?company=FCL&barcodeText=6160001234567
 GET /api/items?company=FCL&uom=PC
 GET /api/items?company=FCL&baseUnitOfMeasure=KG
 GET /api/items?company=FCL&salesUnitOfMeasure=BAG
 GET /api/items?company=FCL&description=beef
-GET /api/items?company=FCL&barcodeType=0
 ```
 
 ```json
@@ -455,9 +453,7 @@ GET /api/items?company=FCL&barcodeType=0
       "description": "Pork Chipolatas 200gms",
       "baseUnitOfMeasure": "KG",
       "salesUnitOfMeasure": "PC",
-      "barcodeNo": "",
-      "barcodeText": "",
-      "barcodeType": 0
+      "barcodeNo": ""
     }
   ]
 }
