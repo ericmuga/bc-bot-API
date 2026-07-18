@@ -2,40 +2,47 @@ const sql = require('mssql');
 const config = require('./config');
 
 const BASE_APP_ID = '437dbf0e-84ff-417a-965d-ed2bb9650972';
-let poolPromise;
+const poolPromises = new Map();
 const tableCache = new Map();
 
-function getPool() {
-  if (!poolPromise) {
-    poolPromise = sql.connect({
-      server: config.sql.server,
-      port: config.sql.port,
-      database: config.sql.database,
-      user: config.sql.user,
-      password: config.sql.password,
+function connectionConfigForRole(role = 'read') {
+  return role === 'write' ? config.sqlWrite : config.sql;
+}
+
+function getPool(role = 'read') {
+  const normalizedRole = role === 'write' ? 'write' : 'read';
+  if (!poolPromises.has(normalizedRole)) {
+    const connectionConfig = connectionConfigForRole(normalizedRole);
+    const poolPromise = new sql.ConnectionPool({
+      server: connectionConfig.server,
+      port: connectionConfig.port,
+      database: connectionConfig.database,
+      user: connectionConfig.user,
+      password: connectionConfig.password,
       options: {
-        encrypt: config.sql.encrypt,
-        trustServerCertificate: config.sql.trustServerCertificate
+        encrypt: connectionConfig.encrypt,
+        trustServerCertificate: connectionConfig.trustServerCertificate
       },
       pool: {
         max: 10,
         min: 0,
         idleTimeoutMillis: 30000
       }
-    }).catch((err) => {
-      poolPromise = undefined;
+    }).connect().catch((err) => {
+      poolPromises.delete(normalizedRole);
       throw err;
     });
+    poolPromises.set(normalizedRole, poolPromise);
   }
 
-  return poolPromise;
+  return poolPromises.get(normalizedRole);
 }
 
 function bracket(identifier) {
   return `[${String(identifier).replace(/]/g, ']]')}]`;
 }
 
-function qualifiedTableName(tableName) {
+function qualifiedTableName(tableName, role = 'read') {
   if (tableName.includes('.')) {
     return tableName
       .split('.')
@@ -43,7 +50,7 @@ function qualifiedTableName(tableName) {
       .join('.');
   }
 
-  return `${bracket(config.sql.schema)}.${bracket(tableName)}`;
+  return `${bracket(connectionConfigForRole(role).schema)}.${bracket(tableName)}`;
 }
 
 function getCompanyConfig(companyCode) {
@@ -59,21 +66,22 @@ function getCompanyConfig(companyCode) {
   return { code, prefix };
 }
 
-async function resolveTable(logicalName, override, companyCode) {
+async function resolveTable(logicalName, override, companyCode, role = 'read') {
   if (override) {
-    return qualifiedTableName(override);
+    return qualifiedTableName(override, role);
   }
 
   const company = getCompanyConfig(companyCode);
-  const cacheKey = `${config.sql.schema}:${company.code}:${company.prefix}:${logicalName}`;
+  const connectionConfig = connectionConfigForRole(role);
+  const cacheKey = `${role}:${connectionConfig.server}:${connectionConfig.database}:${connectionConfig.schema}:${company.code}:${company.prefix}:${logicalName}`;
   if (tableCache.has(cacheKey)) {
     return tableCache.get(cacheKey);
   }
 
-  const pool = await getPool();
+  const pool = await getPool(role);
   const companyPrefix = `${company.prefix}$`;
   const request = pool.request()
-    .input('schema', sql.NVarChar, config.sql.schema)
+    .input('schema', sql.NVarChar, connectionConfig.schema)
     .input('exactCompany', sql.NVarChar, `${companyPrefix}${logicalName}`)
     .input('companyLike', sql.NVarChar, `${companyPrefix}${logicalName}$%`)
     .input('baseAppLike', sql.NVarChar, `${companyPrefix}${logicalName}$${BASE_APP_ID}`);
@@ -101,20 +109,20 @@ async function resolveTable(logicalName, override, companyCode) {
     throw new Error(`Could not resolve SQL table for ${company.code}/${company.prefix}$${logicalName}. Set the matching SQL_TABLE_* env var if this table is custom.`);
   }
 
-  const table = qualifiedTableName(result.recordset[0].TABLE_NAME);
+  const table = qualifiedTableName(result.recordset[0].TABLE_NAME, role);
   tableCache.set(cacheKey, table);
   return table;
 }
 
-async function resolveFirstTable(logicalNames, override, companyCode) {
+async function resolveFirstTable(logicalNames, override, companyCode, role = 'read') {
   if (override) {
-    return qualifiedTableName(override);
+    return qualifiedTableName(override, role);
   }
 
   let lastError;
   for (const logicalName of logicalNames) {
     try {
-      return await resolveTable(logicalName, '', companyCode);
+      return await resolveTable(logicalName, '', companyCode, role);
     } catch (err) {
       lastError = err;
     }
@@ -123,23 +131,23 @@ async function resolveFirstTable(logicalNames, override, companyCode) {
   throw lastError;
 }
 
-async function resolveFirstOptionalTable(logicalNames, override, companyCode) {
+async function resolveFirstOptionalTable(logicalNames, override, companyCode, role = 'read') {
   try {
-    return await resolveFirstTable(logicalNames, override, companyCode);
+    return await resolveFirstTable(logicalNames, override, companyCode, role);
   } catch (err) {
     return '';
   }
 }
 
-async function resolveOptionalTable(logicalName, override, companyCode) {
+async function resolveOptionalTable(logicalName, override, companyCode, role = 'read') {
   try {
-    return await resolveTable(logicalName, override, companyCode);
+    return await resolveTable(logicalName, override, companyCode, role);
   } catch (err) {
     return '';
   }
 }
 
-async function getTables(companyCode) {
+async function getTables(companyCode, role = 'read') {
   const [
     importedOrders,
     importedSalesAL,
@@ -161,28 +169,28 @@ async function getTables(companyCode) {
     salesInvoiceLine,
     salesCrMemoHeader
   ] = await Promise.all([
-    resolveTable('Imported Orders', config.tables.importedOrders, companyCode),
-    resolveTable('Imported SalesAL', config.tables.importedSalesAL, companyCode),
-    resolveOptionalTable('Imported Return Orders', config.tables.importedReturnOrders, companyCode),
-    resolveOptionalTable('Imported Credit Notes AL', config.tables.importedCreditNotesAL, companyCode),
-    resolveTable('Customer', config.tables.customer, companyCode),
-    resolveOptionalTable(`Customer$${BASE_APP_ID}$ext`, config.tables.customerExt, companyCode),
-    resolveTable('Item', config.tables.item, companyCode),
-    resolveOptionalTable(`Item$${BASE_APP_ID}$ext`, config.tables.itemExt, companyCode),
-    resolveTable('Ship-to Address', config.tables.shipToAddress, companyCode),
-    resolveOptionalTable(`Ship-to Address$${BASE_APP_ID}$ext`, config.tables.shipToAddressExt, companyCode),
-    resolveFirstTable(['Salesperson/Purchaser', 'Salesperson_Purchaser'], config.tables.salespersonPurchaser, companyCode),
+    resolveTable('Imported Orders', config.tables.importedOrders, companyCode, role),
+    resolveTable('Imported SalesAL', config.tables.importedSalesAL, companyCode, role),
+    resolveOptionalTable('Imported Return Orders', config.tables.importedReturnOrders, companyCode, role),
+    resolveOptionalTable('Imported Credit Notes AL', config.tables.importedCreditNotesAL, companyCode, role),
+    resolveTable('Customer', config.tables.customer, companyCode, role),
+    resolveOptionalTable(`Customer$${BASE_APP_ID}$ext`, config.tables.customerExt, companyCode, role),
+    resolveTable('Item', config.tables.item, companyCode, role),
+    resolveOptionalTable(`Item$${BASE_APP_ID}$ext`, config.tables.itemExt, companyCode, role),
+    resolveTable('Ship-to Address', config.tables.shipToAddress, companyCode, role),
+    resolveOptionalTable(`Ship-to Address$${BASE_APP_ID}$ext`, config.tables.shipToAddressExt, companyCode, role),
+    resolveFirstTable(['Salesperson/Purchaser', 'Salesperson_Purchaser'], config.tables.salespersonPurchaser, companyCode, role),
     resolveFirstOptionalTable([
       `Salesperson/Purchaser$${BASE_APP_ID}$ext`,
       `Salesperson_Purchaser$${BASE_APP_ID}$ext`
-    ], config.tables.salespersonPurchaserExt, companyCode),
-    resolveTable('Contact', config.tables.contact, companyCode),
-    resolveOptionalTable('District Group Code', config.tables.districtGroupCode, companyCode),
-    resolveTable('Sales Header', config.tables.salesHeader, companyCode),
-    resolveOptionalTable(`Sales Header$${BASE_APP_ID}$ext`, config.tables.salesHeaderExt, companyCode),
-    resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode),
-    resolveTable('Sales Invoice Line', config.tables.salesInvoiceLine, companyCode),
-    resolveFirstTable(['Sales Cr.Memo Header', 'Sales Cr_Memo Header', 'Sales Cr_ Memo Header'], config.tables.salesCrMemoHeader, companyCode)
+    ], config.tables.salespersonPurchaserExt, companyCode, role),
+    resolveTable('Contact', config.tables.contact, companyCode, role),
+    resolveOptionalTable('District Group Code', config.tables.districtGroupCode, companyCode, role),
+    resolveTable('Sales Header', config.tables.salesHeader, companyCode, role),
+    resolveOptionalTable(`Sales Header$${BASE_APP_ID}$ext`, config.tables.salesHeaderExt, companyCode, role),
+    resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode, role),
+    resolveTable('Sales Invoice Line', config.tables.salesInvoiceLine, companyCode, role),
+    resolveFirstTable(['Sales Cr.Memo Header', 'Sales Cr_Memo Header', 'Sales Cr_ Memo Header'], config.tables.salesCrMemoHeader, companyCode, role)
   ]);
 
   return {

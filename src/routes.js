@@ -130,12 +130,20 @@ function maskedValue(value) {
   return `${text[0]}${'*'.repeat(Math.max(text.length - 2, 1))}${text[text.length - 1]}`;
 }
 
+function maskedSqlInfo(sqlConfig) {
+  return {
+    server: maskedValue(sqlConfig.server),
+    database: maskedValue(sqlConfig.database),
+    schema: sqlConfig.schema
+  };
+}
+
 function maskedDatabaseInfo(companyCode) {
   const company = getCompanyConfig(companyCode);
   return {
-    server: maskedValue(config.sql.server),
-    database: maskedValue(config.sql.database),
-    schema: config.sql.schema,
+    ...maskedSqlInfo(config.sql),
+    read: maskedSqlInfo(config.sql),
+    write: maskedSqlInfo(config.sqlWrite),
     defaultCompany: config.companies.defaultCode,
     selectedCompany: company.code,
     selectedPrefix: `${company.prefix}$`
@@ -2007,6 +2015,12 @@ async function listHistoricalSalesInvoiceLines(req, res) {
   addAliasedFilter(filters, request, req.query, 'shipToCode', sql.NVarChar, `h.${bracket('Ship-to Code')}`);
   addAliasedFilter(filters, request, req.query, 'itemNo', sql.NVarChar, `l.${bracket('No_')}`);
 
+  if (optionalString(req.query.postingDate) && (optionalString(req.query.postingDateFrom) || optionalString(req.query.postingDateTo))) {
+    const error = new Error('Use either postingDate or postingDateFrom/postingDateTo, not both.');
+    error.statusCode = 400;
+    throw error;
+  }
+
   if (optionalString(req.query.postingDate)) {
     request.input('postingDate', sql.Date, toBcDate(req.query.postingDate, 'postingDate'));
     filters.push(`h.${bracket('Posting Date')} = @postingDate`);
@@ -2034,7 +2048,7 @@ async function listHistoricalSalesInvoiceLines(req, res) {
         h.${bracket('Salesperson Code')} AS salespersonCode,
         h.${bracket('Ship-to Code')} AS shipToCode,
         h.${bracket('Ship-to Name')} AS shipToName,
-        l.${bracket('Line No_')} AS lineNo,
+        l.${bracket('Line No_')} AS ${bracket('lineNo')},
         l.${bracket('Type')} AS lineType,
         l.${bracket('No_')} AS itemNo,
         l.${bracket('Description')} AS description,
@@ -2043,7 +2057,7 @@ async function listHistoricalSalesInvoiceLines(req, res) {
         l.${bracket('Unit Price')} AS unitPrice,
         l.${bracket('Line Amount')} AS lineAmount,
         l.${bracket('Amount Including VAT')} AS amountIncludingVat,
-        l.${bracket('VAT %')} AS vatPercent
+        l.${bracket('VAT _')} AS vatPercent
       FROM ${tables.salesInvoiceLine} l
       INNER JOIN ${tables.salesInvoiceHeader} h
         ON h.${bracket('No_')} = l.${bracket('Document No_')}
@@ -2053,13 +2067,13 @@ async function listHistoricalSalesInvoiceLines(req, res) {
       SELECT
         *,
         COUNT(*) OVER() AS totalCount,
-        ROW_NUMBER() OVER (ORDER BY ${bracket('postingDate')} DESC, ${bracket('invoiceNo')} DESC, ${bracket('lineNo')}) AS rowNumber
+        ROW_NUMBER() OVER (ORDER BY ${bracket('postingDate')} DESC, ${bracket('invoiceNo')} DESC, ${bracket('lineNo')}) AS ${bracket('rowNumber')}
       FROM MatchingPostedInvoiceLines
     )
     SELECT *
     FROM NumberedPostedInvoiceLines
-    WHERE rowNumber > @offset AND rowNumber <= (@offset + @limit)
-    ORDER BY rowNumber
+    WHERE ${bracket('rowNumber')} > @offset AND ${bracket('rowNumber')} <= (@offset + @limit)
+    ORDER BY ${bracket('rowNumber')}
   `);
 
   const totalCount = result.recordset[0]?.totalCount || 0;
@@ -2315,8 +2329,8 @@ router.post('/bc-api/imported-orders', asyncHandler(async (req, res) => {
   const document = buildImportedDocumentFromBody(body, company);
 
   if (config.access.sqlEnabled) {
-    const pool = await getPool();
-    const tables = await getTables(company.code);
+    const pool = await getPool('write');
+    const tables = await getTables(company.code, 'write');
     await assertExternalDocumentCanBeImported(pool, tables, company.code, document.externalDocumentNo);
   } else {
     await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo);
@@ -2389,8 +2403,8 @@ async function stageImportedOrderSql(body) {
   const totalHeaderQty = optionalNumber(body.totalHeaderQty, lines.reduce((total, line) => total + line.quantity, 0));
   const totalHeaderAmount = optionalNumber(body.totalHeaderAmount, lines.reduce((total, line) => total + line.lineAmount, 0));
 
-  const pool = await getPool();
-  const tables = await getTables(company.code);
+  const pool = await getPool('write');
+  const tables = await getTables(company.code, 'write');
   await assertExternalDocumentCanBeImported(pool, tables, company.code, externalDocumentNo);
   const transaction = new sql.Transaction(pool);
   await transaction.begin();

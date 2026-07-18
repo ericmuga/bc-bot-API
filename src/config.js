@@ -1,4 +1,6 @@
-require('dotenv').config();
+const path = require('path');
+
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 function boolFromEnv(value, fallback) {
   if (value === undefined || value === '') {
@@ -88,6 +90,16 @@ const config = {
     trustServerCertificate: boolFromEnv(process.env.SQL_TRUST_SERVER_CERTIFICATE, true),
     schema: process.env.SQL_SCHEMA || 'dbo',
     companyName: process.env.BC_COMPANY_NAME || ''
+  },
+  sqlWrite: {
+    server: process.env.SQL_WRITE_SERVER || process.env.SQL_SERVER || 'localhost',
+    port: intFromEnv(process.env.SQL_WRITE_PORT, intFromEnv(process.env.SQL_PORT, 1433)),
+    database: process.env.SQL_WRITE_DATABASE || process.env.SQL_DATABASE || '',
+    user: process.env.SQL_WRITE_USER || process.env.SQL_USER || '',
+    password: process.env.SQL_WRITE_PASSWORD || process.env.SQL_PASSWORD || '',
+    encrypt: boolFromEnv(process.env.SQL_WRITE_ENCRYPT, boolFromEnv(process.env.SQL_ENCRYPT, false)),
+    trustServerCertificate: boolFromEnv(process.env.SQL_WRITE_TRUST_SERVER_CERTIFICATE, boolFromEnv(process.env.SQL_TRUST_SERVER_CERTIFICATE, true)),
+    schema: process.env.SQL_WRITE_SCHEMA || process.env.SQL_SCHEMA || 'dbo'
   },
   companies: {
     defaultCode: (process.env.DEFAULT_COMPANY_CODE || process.env.BC_COMPANY_NAME || 'FCL').toUpperCase(),
