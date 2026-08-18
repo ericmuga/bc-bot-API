@@ -28,7 +28,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:3500"
+      "value": "https://nav.farmerschoice.co.ke:8092"
     },
     {
       "key": "apiKey",
@@ -369,6 +369,44 @@
                   "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
                   "  pm.expect(json.data).to.be.an('array');",
                   "  pm.expect(json.data.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "BC Order Status by Company and External Document No",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{company}}/status/{{externalDocumentNo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{company}}",
+                "status",
+                "{{externalDocumentNo}}"
+              ]
+            },
+            "description": "Company-prefixed alias for checking BC order status by external document number."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Company-prefixed BC status is returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json).to.have.property('state');",
                   "});"
                 ]
               }
@@ -1650,7 +1688,7 @@
                 }
               ]
             },
-            "description": "Reads posted Sales Invoice Line history joined to Sales Invoice Header. Use this after a BOT order or invoice has posted and left staging/Sales Header."
+            "description": "Reads posted Sales Invoice Line history joined to Sales Invoice Header. At least one filter other than company, limit, page, or offset is required because the posted invoice line table is large."
           },
           "event": [
             {
@@ -1666,6 +1704,8 @@
                   "  pm.expect(json.totalCount).to.be.a(\"number\");",
                   "  pm.expect(json.data).to.be.an(\"array\");",
                   "  if (json.data.length) {",
+                  "  pm.expect(json.hasNext).to.be.a(\"boolean\");",
+                  "  pm.expect(json.hasPrevious).to.be.a(\"boolean\");",
                   "    pm.expect(json.data[0]).to.have.property(\"invoiceNo\");",
                   "    pm.expect(json.data[0]).to.have.property(\"externalDocumentNo\");",
                   "    pm.expect(json.data[0]).to.have.property(\"itemNo\");",
@@ -1714,6 +1754,144 @@
                   "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
                   "  pm.expect(json.errorCount).to.be.a('number');",
                   "  pm.expect(json.errors).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create Imported Order via BC API Pages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentType\": \"order\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"{{externalDocumentNo}}\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"customerSpecification\": \"No onions\",\n  \"pdaOrder\": false,\n  \"externalOrderUrl\": \"https://bot.example.com/orders/{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Vacuum packed\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo2}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Tray packed\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bc-api/imported-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bc-api",
+                "imported-orders"
+              ]
+            },
+            "description": "Stages a single imported sales document through the custom Business Central API pages. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('BC API imported order is staged', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.provider).to.eql('bcApi');",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json.lineCount).to.be.a('number');",
+                  "  pm.expect(json.status).to.eql('imported');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Imported Document via BC API Pages",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/bc-api/imported-orders/{{externalDocumentNo}}?company={{company}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bc-api",
+                "imported-orders",
+                "{{externalDocumentNo}}"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                }
+              ]
+            },
+            "description": "Reads imported document lines through the custom Business Central API pages for Imported Orders, Imported SalesAL, Imported Return Orders, and Imported Credit Notes AL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('BC API imported document is returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.provider).to.eql('bcApi');",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                  "  pm.expect(json.lines).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List Historical Posted Sales Invoice Lines - Missing Filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/historical-sales-invoice-lines?company={{company}}&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "historical-sales-invoice-lines"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Negative test: unfiltered historical invoice line requests should return 400 instead of scanning the full posted invoice line table."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Missing historical invoice filters returns 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error).to.include('At least one filter');",
+                  "  pm.expect(json.requiredFilters).to.include('externalDocumentNo');",
                   "});"
                 ]
               }
