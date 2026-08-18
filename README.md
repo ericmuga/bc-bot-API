@@ -537,6 +537,8 @@ limit
 
 `GET /api/historical-sales-invoice-lines` returns historical posted sales invoice line data from Business Central `Sales Invoice Line`, joined to `Sales Invoice Header` for posting date, customer, ship-to, salesperson, and BOT external document number.
 
+At least one filter other than `company`, `limit`, `page`, or `offset` is required. Unfiltered historical invoice requests are rejected because the posted invoice line table is large.
+
 Supported filters:
 
 ```http

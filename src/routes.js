@@ -1950,7 +1950,28 @@ router.get('/salespeople', asyncHandler(async (req, res) => {
   res.json(paginatedResponse(companyCode, salespeople, pagination, totalCount));
 }));
 
+const historicalSalesInvoiceLineFilters = [
+  'externalDocumentNo',
+  'invoiceNo',
+  'documentNo',
+  'sellToCustomerNo',
+  'customerNo',
+  'postingDate',
+  'postingDateFrom',
+  'postingDateTo',
+  'salespersonCode',
+  'shipToCode',
+  'itemNo'
+];
+
 async function listHistoricalSalesInvoiceLines(req, res) {
+  if (!historicalSalesInvoiceLineFilters.some((filterName) => optionalString(req.query[filterName]))) {
+    return res.status(400).json({
+      error: 'At least one filter is required for historical sales invoice lines.',
+      requiredFilters: historicalSalesInvoiceLineFilters
+    });
+  }
+
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
   const tables = await getTables(companyCode);
@@ -1988,6 +2009,13 @@ async function listHistoricalSalesInvoiceLines(req, res) {
   if (optionalString(req.query.postingDateTo)) {
     request.input('postingDateTo', sql.Date, toBcDate(req.query.postingDateTo, 'postingDateTo'));
     filters.push(`h.${bracket('Posting Date')} <= @postingDateTo`);
+  }
+
+  if (!filters.length) {
+    return res.status(400).json({
+      error: 'At least one filter is required for historical sales invoice lines.',
+      requiredFilters: historicalSalesInvoiceLineFilters
+    });
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';

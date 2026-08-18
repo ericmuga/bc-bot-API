@@ -70,6 +70,20 @@ function keyValueMapFromEnv(value) {
 }
 
 const accessMode = accessModeFromEnv(process.env.BC_ACCESS_MODE);
+const companyPrefixes = companyMapFromEnv(process.env.BC_COMPANY_PREFIXES);
+
+function defaultCompanyCodeFromEnv() {
+  const explicitCode = (process.env.DEFAULT_COMPANY_CODE || '').trim().toUpperCase();
+  if (explicitCode) {
+    return explicitCode;
+  }
+
+  const legacyCompanyName = (process.env.BC_COMPANY_NAME || '').trim().replace(/\$$/, '').toUpperCase();
+  const matchingCode = Object.entries(companyPrefixes)
+    .find(([, prefix]) => String(prefix).replace(/\$$/, '').toUpperCase() === legacyCompanyName)?.[0];
+
+  return matchingCode || legacyCompanyName || 'FCL';
+}
 
 const config = {
   port: intFromEnv(process.env.PORT, 3500),
@@ -102,8 +116,8 @@ const config = {
     schema: process.env.SQL_WRITE_SCHEMA || process.env.SQL_SCHEMA || 'dbo'
   },
   companies: {
-    defaultCode: (process.env.DEFAULT_COMPANY_CODE || process.env.BC_COMPANY_NAME || 'FCL').toUpperCase(),
-    prefixes: companyMapFromEnv(process.env.BC_COMPANY_PREFIXES)
+    defaultCode: defaultCompanyCodeFromEnv(),
+    prefixes: companyPrefixes
   },
   tables: {
     importedOrders: process.env.SQL_TABLE_IMPORTED_ORDERS || '',

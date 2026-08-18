@@ -664,7 +664,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/historical-sales-invoice-lines': {
       get: {
         summary: 'List historical posted sales invoice lines',
-        description: 'Reads posted Sales Invoice Line history joined to Sales Invoice Header. Use this for posted invoice history after a BOT invoice/order has left staging or Sales Header.',
+        description: 'Reads posted Sales Invoice Line history joined to Sales Invoice Header. Use this for posted invoice history after a BOT invoice/order has left staging or Sales Header. At least one filter other than company, limit, page, or offset is required because the posted invoice line table is large.',
         parameters: [
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           { name: 'externalDocumentNo', in: 'query', schema: { type: 'string' }, description: 'BOT external document number from Sales Invoice Header.' },
@@ -730,7 +730,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
               }
             }
           },
-          400: { description: 'Invalid filter' }
+          400: { description: 'Invalid filter, or no historical invoice filter was provided.' }
         }
       }
     },

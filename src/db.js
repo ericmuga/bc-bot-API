@@ -53,6 +53,26 @@ function qualifiedTableName(tableName, role = 'read') {
   return `${bracket(connectionConfigForRole(role).schema)}.${bracket(tableName)}`;
 }
 
+function unqualifiedTableName(tableName) {
+  const cleaned = String(tableName || '')
+    .split('.')
+    .pop()
+    .replace(/^\[|\]$/g, '')
+    .replace(/]]/g, ']');
+
+  return cleaned;
+}
+
+function overrideMatchesCompany(override, company) {
+  if (!override) {
+    return false;
+  }
+
+  const tableName = unqualifiedTableName(override);
+  const prefix = `${company.prefix}$`;
+  return tableName.startsWith(prefix);
+}
+
 function getCompanyConfig(companyCode) {
   const code = (companyCode || config.companies.defaultCode).toUpperCase();
   const prefix = config.companies.prefixes[code];
@@ -67,11 +87,11 @@ function getCompanyConfig(companyCode) {
 }
 
 async function resolveTable(logicalName, override, companyCode, role = 'read') {
-  if (override) {
+  const company = getCompanyConfig(companyCode);
+  if (override && overrideMatchesCompany(override, company)) {
     return qualifiedTableName(override, role);
   }
 
-  const company = getCompanyConfig(companyCode);
   const connectionConfig = connectionConfigForRole(role);
   const cacheKey = `${role}:${connectionConfig.server}:${connectionConfig.database}:${connectionConfig.schema}:${company.code}:${company.prefix}:${logicalName}`;
   if (tableCache.has(cacheKey)) {
