@@ -1243,7 +1243,7 @@
                 "imported-orders"
               ]
             },
-            "description": "Stages a single BOT order into BC Imported Orders. POST /api/imported-orders also accepts a raw array of order objects or an object wrapper { \"orders\": [...] } for batch staging."
+            "description": "Stages a single BOT order into BC Imported Orders. If SQL_WRITE_TEST_* is configured, the same document is also staged to the test write target and the response includes a targets array. POST /api/imported-orders also accepts a raw array of order objects or an object wrapper { \"orders\": [...] } for batch staging."
           },
           "event": [
             {
@@ -1502,7 +1502,7 @@
                 }
               ]
             },
-            "description": "Lists Imported Orders lines with optional query filters: externalDocumentNo, customerNo/sellToCustomerNo, shipmentDate or shipmentDateFrom/shipmentDateTo, shipToCode, shipToName, salespersonCode, itemNo, company, status, limit."
+            "description": "Lists Imported Orders lines with optional query filters: externalDocumentNo, customerNo/sellToCustomerNo, shipmentDate or shipmentDateFrom/shipmentDateTo, shipToCode, shipToName, salespersonCode, itemNo, company, status, limit. SQL staging responses can include a targets array when test mirroring is configured."
           },
           "event": [
             {
@@ -1786,7 +1786,7 @@
                 "imported-orders"
               ]
             },
-            "description": "Stages a single imported sales document through the custom Business Central API pages. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both."
+            "description": "Stages a single imported sales document through the custom Business Central API pages. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both. If BC_API_TEST_* is configured, the same payload is also posted to the test BC API target and the response includes a targets array."
           },
           "event": [
             {
@@ -1815,7 +1815,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/bc-api/imported-orders/{{externalDocumentNo}}?company={{company}}",
+              "raw": "{{baseUrl}}/api/bc-api/imported-orders/{{externalDocumentNo}}?company={{company}}&target=primary",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1829,10 +1829,15 @@
                 {
                   "key": "company",
                   "value": "{{company}}"
+                },
+                {
+                  "key": "target",
+                  "value": "primary",
+                  "description": "Use test when BC_API_TEST_* is configured."
                 }
               ]
             },
-            "description": "Reads imported document lines through the custom Business Central API pages for Imported Orders, Imported SalesAL, Imported Return Orders, and Imported Credit Notes AL."
+            "description": "Reads imported document lines through the custom Business Central API pages for Imported Orders, Imported SalesAL, Imported Return Orders, and Imported Credit Notes AL. Set target=test to inspect the configured test BC API target."
           },
           "event": [
             {
@@ -1898,8 +1903,2409 @@
             }
           ],
           "response": []
+        },
+        {
+          "name": "List Live Imported Lines Missing on Test",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders/missing-on-test?company={{company}}&shipmentDateFrom=2026-08-12&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders",
+                "missing-on-test"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "shipmentDateFrom",
+                  "value": "2026-08-12"
+                },
+                {
+                  "key": "shipmentDateTo",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Compares primary SQL staging with the configured test SQL mirror and returns live/primary imported staging lines missing on test. Defaults shipmentDateFrom to the 12th day of the current month when omitted."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Live missing on test response is paginated', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.liveTarget).to.eql('primary');",
+                  "  pm.expect(json.testTarget).to.eql('test');",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  pm.expect(json.hasNext).to.be.a('boolean');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Push Live Imported Lines Missing on Test",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/imported-orders/push-missing-to-test?company={{company}}&shipmentDateFrom=2026-08-12",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "imported-orders",
+                "push-missing-to-test"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "shipmentDateFrom",
+                  "value": "2026-08-12"
+                },
+                {
+                  "key": "shipmentDateTo",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Copies imported staging rows from live/primary into the configured test SQL mirror for rows missing on test. Existing test rows are not duplicated."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Missing live rows are pushed to test', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                  "  pm.expect(json.liveTarget).to.eql('primary');",
+                  "  pm.expect(json.testTarget).to.eql('test');",
+                  "  pm.expect(json.insertedLineCount).to.be.a('number');",
+                  "  pm.expect(json.sources).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
       ]
+    },
+    {
+      "name": "Sales Price Master Data",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/sales-prices?company={{company}}&limit=100&page=1",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "sales-prices"
+          ],
+          "query": [
+            {
+              "key": "company",
+              "value": "{{company}}"
+            },
+            {
+              "key": "limit",
+              "value": "100"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "itemNos",
+              "value": "J31010101,J31010201",
+              "disabled": true
+            },
+            {
+              "key": "customerPriceGroup",
+              "value": "WHOLESALE",
+              "disabled": true
+            },
+            {
+              "key": "customerNo",
+              "value": "101",
+              "disabled": true
+            },
+            {
+              "key": "salesType",
+              "value": "1",
+              "disabled": true
+            },
+            {
+              "key": "salesCode",
+              "value": "WHOLESALE",
+              "disabled": true
+            },
+            {
+              "key": "currencyCode",
+              "value": "",
+              "disabled": true
+            },
+            {
+              "key": "unitOfMeasureCode",
+              "value": "KG",
+              "disabled": true
+            },
+            {
+              "key": "variantCode",
+              "value": "",
+              "disabled": true
+            },
+            {
+              "key": "validOn",
+              "value": "2026-09-21",
+              "disabled": true
+            },
+            {
+              "key": "quantity",
+              "value": "10",
+              "disabled": true
+            },
+            {
+              "key": "minUnitPrice",
+              "value": "100",
+              "disabled": true
+            },
+            {
+              "key": "maxUnitPrice",
+              "value": "500",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Company flags: CM, FCL, FLM, RMK. Optional filters are disabled below; enable as needed. Use customerNo or customerPriceGroup, not both. All enabled filters are combined with AND."
+      },
+      "response": []
+    },
+    {
+      "name": "Test-only writes (reads unchanged)",
+      "description": "All writes go only to test. Company flags and authentication are unchanged.",
+      "item": [
+        {
+          "name": "Docs",
+          "item": [
+            {
+              "name": "OpenAPI JSON",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/openapi.json",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "openapi.json"
+                  ]
+                },
+                "description": "Public OpenAPI document. Does not require API key."
+              },
+              "response": []
+            },
+            {
+              "name": "OpenAPI YAML",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/openapi.yaml",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "openapi.yaml"
+                  ]
+                },
+                "description": "Public OpenAPI YAML. Does not require API key."
+              },
+              "response": []
+            },
+            {
+              "name": "Download Postman Collection",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/postman-collection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "postman-collection"
+                  ]
+                },
+                "description": "Downloads the current Postman collection JSON for this API."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Health",
+          "item": [
+            {
+              "name": "Health Check",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/health",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "health"
+                  ]
+                },
+                "description": "Checks API and SQL connectivity."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Health check is OK', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  pm.expect(pm.response.json().ok).to.eql(true);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "API Readiness Status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/status?company={{company}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "status"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    }
+                  ]
+                },
+                "description": "Detailed readiness check. Confirms SQL connectivity, resolved Business Central SQL tables, and configured defaults."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('API readiness is OK', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.ok).to.eql(true);",
+                      "  pm.expect(json.database.server).to.not.include('172.');",
+                      "  pm.expect(json.database.database).to.not.eql('FCL');",
+                      "  pm.expect(json.tables.importedOrders).to.be.a('string');",
+                      "  pm.expect(json.tables.customer).to.be.a('string');",
+                      "  pm.expect(json.tables.item).to.be.a('string');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "BC Order Status by External Document No",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/status/{{externalDocumentNo}}?company={{company}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "status",
+                    "{{externalDocumentNo}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    }
+                  ]
+                },
+                "description": "Primary BOT status check. Accepts the company query parameter and external document number, then returns current BC status from posted documents, Sales Header, or imported staging."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('BC order status is returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json.orderStatus).to.be.a('string');",
+                      "  pm.expect(json.bcStage).to.be.oneOf(['Imported Orders', 'Imported SalesAL', 'Imported Return Orders', 'Imported Credit Notes AL', 'Sales Header', 'Posted Sales Invoice', 'Posted Sales Credit Memo']);",
+                      "  pm.expect(json.sourceTable).to.be.a('string');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Batch BC Status by External Document Nos",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"company\": \"{{company}}\",\n  \"externalDocumentNos\": [\n    \"{{externalDocumentNo}}\",\n    \"BOT-CN-100045\",\n    \"BOT-RET-100045\"\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/status/batch",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "status",
+                    "batch"
+                  ]
+                },
+                "description": "Checks multiple external document numbers in one request. Unknown documents are returned with found=false."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Batch statuses are returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.data).to.be.an('array');",
+                      "  pm.expect(json.data.length).to.be.above(0);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "BC Order Status by Company and External Document No",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/{{company}}/status/{{externalDocumentNo}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "{{company}}",
+                    "status",
+                    "{{externalDocumentNo}}"
+                  ]
+                },
+                "description": "Company-prefixed alias for checking BC order status by external document number."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Company-prefixed BC status is returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json).to.have.property('state');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Master Data",
+          "item": [
+            {
+              "name": "List Web Customers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&search={{customerNo}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "search",
+                      "value": "{{customerNo}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Reads web portal customers for the selected company. Response includes customer number/name and nested shipTo entries with code and name."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Customers response has nested ship-to array', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.count).to.be.a('number');",
+                      "  pm.expect(json.totalCount).to.be.a('number');",
+                      "  pm.expect(json.page).to.be.a('number');",
+                      "  pm.expect(json.limit).to.be.a('number');",
+                      "  pm.expect(json.totalPages).to.be.a('number');",
+                      "  pm.expect(json.hasNext).to.be.a('boolean');",
+                      "  pm.expect(json.data).to.be.an('array');",
+                      "  if (json.data.length) {",
+                      "    pm.expect(json.data[0]).to.have.property('sector');",
+                      "    pm.expect(json.data[0].shipTo).to.be.an('array');",
+                      "  }",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List Web Customers - Repeated Customer Numbers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&customerNo={{customerNo}}&customerNo={{customerNo2}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "customerNo",
+                      "value": "{{customerNo}}"
+                    },
+                    {
+                      "key": "customerNo",
+                      "value": "{{customerNo2}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters web portal customers by repeated exact customerNo query parameters."
+              },
+              "response": []
+            },
+            {
+              "name": "List Web Customers - Comma Customer Numbers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&customerNos={{customerNos}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "customerNos",
+                      "value": "{{customerNos}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters web portal customers by comma-separated exact customer numbers."
+              },
+              "response": []
+            },
+            {
+              "name": "List Web Customers - JSON Array Customer Numbers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&customerNos={{customerNosJson}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "customerNos",
+                      "value": "{{customerNosJson}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters web portal customers by a JSON-array string of exact customer numbers."
+              },
+              "response": []
+            },
+            {
+              "name": "List Web Customers - Name",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&name={{customerName}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "name",
+                      "value": "{{customerName}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters web portal customers by partial customer name."
+              },
+              "response": []
+            },
+            {
+              "name": "List Web Customers - Ship-to Code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&shipToCode={{shipToCode}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "shipToCode",
+                      "value": "{{shipToCode}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters web portal customers where a nested ship-to code exists."
+              },
+              "response": []
+            },
+            {
+              "name": "List Web Customers - Ship-to Name",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/customers?company={{company}}&shipToName={{shipToName}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "customers"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "shipToName",
+                      "value": "{{shipToName}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters web portal customers where a nested ship-to name partially matches."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "search",
+                      "value": "{{salespersonCode}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Reads salespeople for the selected company with nested contact codes, names and phone numbers."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Salespeople response has route, payment, contacts and ship-to arrays', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.count).to.be.a('number');",
+                      "  pm.expect(json.totalCount).to.be.a('number');",
+                      "  pm.expect(json.page).to.be.a('number');",
+                      "  pm.expect(json.limit).to.be.a('number');",
+                      "  pm.expect(json.totalPages).to.be.a('number');",
+                      "  pm.expect(json.hasNext).to.be.a('boolean');",
+                      "  pm.expect(json.data).to.be.an('array');",
+                      "  if (json.data.length) {",
+                      "    pm.expect(json.data[0]).to.have.property('currentRoute');",
+                      "    pm.expect(json.data[0].route).to.be.an('object');",
+                      "    pm.expect(json.data[0].route).to.have.property('districtGroupCode');",
+                      "    pm.expect(json.data[0]).to.have.property('mpesaTill');",
+                      "    pm.expect(json.data[0]).to.have.property('mpesaPaybill');",
+                      "    pm.expect(json.data[0].contacts).to.be.an('array');",
+                      "    pm.expect(json.data[0].shipTo).to.be.an('array');",
+                      "    if (json.data[0].contacts.length) {",
+                      "      pm.expect(json.data[0].contacts[0]).to.have.property('code');",
+                      "    }",
+                      "    if (json.data[0].shipTo.length) {",
+                      "      pm.expect(json.data[0].shipTo[0]).to.have.property('route');",
+                      "      pm.expect(json.data[0].shipTo[0].route).to.have.property('districtGroupCode');",
+                      "    }",
+                      "  }",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List Salespeople - Repeated Codes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&salespersonCode={{salespersonCode}}&salespersonCode={{salespersonCode2}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "salespersonCode",
+                      "value": "{{salespersonCode}}"
+                    },
+                    {
+                      "key": "salespersonCode",
+                      "value": "{{salespersonCode2}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople by repeated salespersonCode query parameters."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople - Comma Codes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&salespersonCodes={{salespersonCodes}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "salespersonCodes",
+                      "value": "{{salespersonCodes}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople by comma-separated salespersonCodes."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople - JSON Array Codes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&salespersonCodes={{salespersonCodesJson}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "salespersonCodes",
+                      "value": "{{salespersonCodesJson}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople by a JSON-array salespersonCodes value."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople - Name",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&name={{salespersonName}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "name",
+                      "value": "{{salespersonName}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople where the salesperson name partially matches."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople - Contact Code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&contactCode={{contactCode}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "contactCode",
+                      "value": "{{contactCode}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople linked to a specific contact code."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople - Contact Name",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&contactName={{contactName}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "contactName",
+                      "value": "{{contactName}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople where a nested contact name partially matches."
+              },
+              "response": []
+            },
+            {
+              "name": "List Salespeople - Contact Phone",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/salespeople?company={{company}}&contactPhone={{contactPhone}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "salespeople"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "contactPhone",
+                      "value": "{{contactPhone}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters salespeople where a nested contact phone partially matches."
+              },
+              "response": []
+            },
+            {
+              "name": "List PDA Items - Search",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/items?company={{company}}&search={{itemNo}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "items"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "search",
+                      "value": "{{itemNo}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Reads PDA items for the selected company using broad item number/description search. Response includes barcodeNo."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Items response has barcodeNo field\", function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.count).to.be.a('number');",
+                      "  pm.expect(json.totalCount).to.be.a('number');",
+                      "  pm.expect(json.page).to.be.a('number');",
+                      "  pm.expect(json.limit).to.be.a('number');",
+                      "  pm.expect(json.totalPages).to.be.a('number');",
+                      "  pm.expect(json.hasNext).to.be.a('boolean');",
+                      "  pm.expect(json.data).to.be.an('array');",
+                      "  if (json.data.length) {",
+                      "    pm.expect(json.data[0]).to.have.property('itemNo');",
+                      "    pm.expect(json.data[0]).to.have.property('barcodeNo');",
+                      "  }",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List PDA Items - Repeated Item Numbers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/items?company={{company}}&itemNo={{itemNo}}&itemNo={{itemNo2}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "items"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "itemNo",
+                      "value": "{{itemNo}}"
+                    },
+                    {
+                      "key": "itemNo",
+                      "value": "{{itemNo2}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters PDA items by repeated exact itemNo query parameters."
+              },
+              "response": []
+            },
+            {
+              "name": "List PDA Items - Comma Item Numbers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/items?company={{company}}&itemNos={{itemNos}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "items"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "itemNos",
+                      "value": "{{itemNos}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters PDA items by comma-separated exact item numbers."
+              },
+              "response": []
+            },
+            {
+              "name": "List PDA Items - JSON Array Item Numbers",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/items?company={{company}}&itemNos={{itemNosJson}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "items"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "itemNos",
+                      "value": "{{itemNosJson}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters PDA items by a JSON-array string of exact item numbers."
+              },
+              "response": []
+            },
+            {
+              "name": "List PDA Items - Barcode Lookup",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/items?company={{company}}&barcode={{barcode}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "items"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "barcode",
+                      "value": "{{barcode}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters PDA items by partial barcodeNo."
+              },
+              "response": []
+            },
+            {
+              "name": "List PDA Items - UOM",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/items?company={{company}}&uom={{uom}}&limit=25",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "items"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "uom",
+                      "value": "{{uom}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "25"
+                    }
+                  ]
+                },
+                "description": "Filters PDA items where baseUnitOfMeasure or salesUnitOfMeasure equals the supplied UOM."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Imported Orders",
+          "item": [
+            {
+              "name": "Create Imported Order",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"documentType\": \"order\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"{{externalDocumentNo}}\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"customerSpecification\": \"No onions\",\n  \"pdaOrder\": false,\n  \"externalOrderUrl\": \"https://bot.example.com/orders/{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Vacuum packed\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo2}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Tray packed\"\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders"
+                  ]
+                },
+                "description": "Stages a single BOT order into BC Imported Orders. If SQL_WRITE_TEST_* is configured, the same document is also staged to the test write target and the response includes a targets array. POST /api/imported-orders also accepts a raw array of order objects or an object wrapper { \"orders\": [...] } for batch staging."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported order is staged', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json.lineCount).to.eql(2);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Create Imported Orders Batch",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"orders\": [\n    {\n      \"documentType\": \"order\",\n      \"company\": \"{{company}}\",\n      \"externalDocumentNo\": \"BOT-BATCH-100045\",\n      \"sellToCustomerNo\": \"{{customerNo}}\",\n      \"shipmentDate\": \"2026-06-22\",\n      \"salespersonCode\": \"{{salespersonCode}}\",\n      \"shipToCode\": \"{{shipToCode}}\",\n      \"shipToName\": \"{{shipToName}}\",\n      \"customerSpecification\": \"No onions\",\n      \"pdaOrder\": false,\n      \"externalOrderUrl\": \"https://bot.example.com/orders/BOT-BATCH-100045\",\n      \"lines\": [\n        {\n          \"lineNo\": 10000,\n          \"itemNo\": \"{{itemNo}}\",\n          \"quantity\": 12,\n          \"unitOfMeasure\": \"{{uom}}\",\n          \"productSpecification\": \"Vacuum packed\"\n        }\n      ]\n    },\n    {\n      \"documentType\": \"order\",\n      \"company\": \"{{company}}\",\n      \"externalDocumentNo\": \"BOT-BATCH-100046\",\n      \"sellToCustomerNo\": \"{{customerNo}}\",\n      \"shipmentDate\": \"2026-06-22\",\n      \"salespersonCode\": \"{{salespersonCode}}\",\n      \"shipToCode\": \"{{shipToCode}}\",\n      \"shipToName\": \"{{shipToName}}\",\n      \"customerSpecification\": \"No onions\",\n      \"pdaOrder\": false,\n      \"externalOrderUrl\": \"https://bot.example.com/orders/BOT-BATCH-100046\",\n      \"lines\": [\n        {\n          \"lineNo\": 10000,\n          \"itemNo\": \"{{itemNo2}}\",\n          \"quantity\": 5,\n          \"unitOfMeasure\": \"{{uom}}\",\n          \"productSpecification\": \"Tray packed\"\n        }\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders"
+                  ]
+                },
+                "description": "Stages multiple BOT orders in one request. Each object has the same shape as Create Imported Order, with header fields and nested lines. The endpoint also accepts a raw JSON array of order objects."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported order batch is staged', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.batch).to.eql(true);",
+                      "  pm.expect(json.count).to.eql(2);",
+                      "  pm.expect(json.orders).to.be.an('array').with.length(2);",
+                      "  pm.expect(json.orders[0].status).to.eql('imported');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Create Imported Invoice",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"documentType\": \"invoice\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-INV-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"location\": \"3535\",\n  \"totalHeaderAmount\": 1972,\n  \"totalHeaderQty\": 17,\n  \"billTo\": \"{{customerNo}}\",\n  \"cuInvoiceNo\": \"CU-100045\",\n  \"cuNo\": \"ETR-01\",\n  \"signingTime\": \"2026-06-22T10:15:00\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 1392,\n      \"location\": \"3535\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo2}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 580,\n      \"location\": \"3535\"\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders"
+                  ]
+                },
+                "description": "Stages a BOT invoice into BC Imported SalesAL for the Import SalesAL posting process."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported invoice is staged', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.documentType).to.eql('invoice');",
+                      "  pm.expect(json.lineCount).to.eql(2);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Create Imported Return Order",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"documentType\": \"returnOrder\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-RET-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"originalOrderNo\": \"{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"{{uom}}\"\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders"
+                  ]
+                },
+                "description": "Stages a BOT return order into BC Imported Return Orders."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported return order is staged', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.documentType).to.eql('returnOrder');",
+                      "  pm.expect(json.lineCount).to.eql(1);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Create Imported Credit Note",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"documentType\": \"creditNote\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"BOT-CN-100045\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"location\": \"3535\",\n  \"taxAppliedDocumentNo\": \"CU-INV-100045\",\n  \"returnReasonCode\": \"DAMAGED\",\n  \"totalHeaderAmount\": 232,\n  \"totalHeaderQty\": 2,\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 2,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"unitPrice\": 116,\n      \"lineAmount\": 232,\n      \"location\": \"3535\"\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders"
+                  ]
+                },
+                "description": "Stages a BOT credit note into BC Imported Credit Notes AL. The BC processor creates a Sales Credit Memo and can send it to approval based on Sales & Receivables Setup."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported credit note is staged', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.documentType).to.eql('creditNote');",
+                      "  pm.expect(json.lineCount).to.eql(1);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List Imported Orders with Filters",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders?company={{company}}&externalDocumentNo={{externalDocumentNo}}&customerNo={{customerNo}}&shipmentDate=2026-06-22&shipToCode={{shipToCode}}&salespersonCode={{salespersonCode}}&status=Order&limit=100",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "externalDocumentNo",
+                      "value": "{{externalDocumentNo}}"
+                    },
+                    {
+                      "key": "customerNo",
+                      "value": "{{customerNo}}"
+                    },
+                    {
+                      "key": "shipmentDate",
+                      "value": "2026-06-22"
+                    },
+                    {
+                      "key": "shipmentDateFrom",
+                      "value": "2026-06-01",
+                      "disabled": true
+                    },
+                    {
+                      "key": "shipmentDateTo",
+                      "value": "2026-06-30",
+                      "disabled": true
+                    },
+                    {
+                      "key": "shipToCode",
+                      "value": "{{shipToCode}}"
+                    },
+                    {
+                      "key": "salespersonCode",
+                      "value": "{{salespersonCode}}"
+                    },
+                    {
+                      "key": "status",
+                      "value": "Order"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "100"
+                    }
+                  ]
+                },
+                "description": "Lists Imported Orders lines with optional query filters: externalDocumentNo, customerNo/sellToCustomerNo, shipmentDate or shipmentDateFrom/shipmentDateTo, shipToCode, shipToName, salespersonCode, itemNo, company, status, limit. SQL staging responses can include a targets array when test mirroring is configured."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Filtered imported orders are returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.count).to.be.a('number');",
+                      "  pm.expect(json.totalCount).to.be.a('number');",
+                      "  pm.expect(json.page).to.be.a('number');",
+                      "  pm.expect(json.limit).to.be.a('number');",
+                      "  pm.expect(json.totalPages).to.be.a('number');",
+                      "  pm.expect(json.hasNext).to.be.a('boolean');",
+                      "  pm.expect(json.data).to.be.an('array');",
+                      "  if (json.data.length) {",
+                      "    pm.expect(json.data[0]).to.have.property('externalDocumentNo');",
+                      "    pm.expect(json.data[0]).to.have.property('statusName');",
+                      "  }",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Get Imported Order",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders/{{externalDocumentNo}}?company={{company}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders",
+                    "{{externalDocumentNo}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    }
+                  ]
+                },
+                "description": "Reads the staged imported order lines from BC Imported Orders by External Document No."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported order lines are returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
+                      "  pm.expect(json.lines[0]).to.have.property('productSpecification');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Get Imported Order Status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders/{{externalDocumentNo}}/status?company={{company}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders",
+                    "{{externalDocumentNo}}",
+                    "status"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    }
+                  ]
+                },
+                "description": "Checks staged document status by line and also checks Sales Header / Sales Invoice Header. Status mapping: 0 Order, 1 Execute, 2 Post, 3 Cancelled, 4 Error. Imported Orders status Post means the live Sales Order exists; final posted state is confirmed from Sales Invoice Header."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported order status is returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json.state).to.be.oneOf(['imported', 'processing', 'salesOrder', 'posted', 'cancelled', 'error']);",
+                      "  pm.expect(json.statusCounts).to.be.an('object');",
+                      "  pm.expect(json.salesDocuments).to.be.an('object');",
+                      "  pm.expect(json.lines).to.be.an('array').that.is.not.empty;",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List Historical Posted Sales Invoice Lines",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/historical-sales-invoice-lines?company={{company}}&externalDocumentNo={{externalDocumentNo}}&postingDateFrom={{postingDateFrom}}&postingDateTo={{postingDateTo}}&limit=100",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "historical-sales-invoice-lines"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "externalDocumentNo",
+                      "value": "{{externalDocumentNo}}"
+                    },
+                    {
+                      "key": "invoiceNo",
+                      "value": "{{invoiceNo}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "customerNo",
+                      "value": "{{customerNo}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "postingDate",
+                      "value": "{{postingDate}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "postingDateFrom",
+                      "value": "{{postingDateFrom}}"
+                    },
+                    {
+                      "key": "postingDateTo",
+                      "value": "{{postingDateTo}}"
+                    },
+                    {
+                      "key": "salespersonCode",
+                      "value": "{{salespersonCode}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "shipToCode",
+                      "value": "{{shipToCode}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "itemNo",
+                      "value": "{{itemNo}}",
+                      "disabled": true
+                    },
+                    {
+                      "key": "limit",
+                      "value": "100"
+                    }
+                  ]
+                },
+                "description": "Reads posted Sales Invoice Line history joined to Sales Invoice Header. At least one filter other than company, limit, page, or offset is required because the posted invoice line table is large."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Posted sales invoice history response is shaped\", function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get(\"company\") || pm.variables.get(\"company\"));",
+                      "  pm.expect(json.count).to.be.a(\"number\");",
+                      "  pm.expect(json.totalCount).to.be.a(\"number\");",
+                      "  pm.expect(json.data).to.be.an(\"array\");",
+                      "  if (json.data.length) {",
+                      "  pm.expect(json.hasNext).to.be.a(\"boolean\");",
+                      "  pm.expect(json.hasPrevious).to.be.a(\"boolean\");",
+                      "    pm.expect(json.data[0]).to.have.property(\"invoiceNo\");",
+                      "    pm.expect(json.data[0]).to.have.property(\"externalDocumentNo\");",
+                      "    pm.expect(json.data[0]).to.have.property(\"itemNo\");",
+                      "  }",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Get Imported Document Errors",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders/{{externalDocumentNo}}/errors?company={{company}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders",
+                    "{{externalDocumentNo}}",
+                    "errors"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    }
+                  ]
+                },
+                "description": "Returns hard BC processing errors stamped on Imported Orders or Imported SalesAL lines for the selected external document number."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Imported document errors response is shaped', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json.errorCount).to.be.a('number');",
+                      "  pm.expect(json.errors).to.be.an('array');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Create Imported Order via BC API Pages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"documentType\": \"order\",\n  \"company\": \"{{company}}\",\n  \"externalDocumentNo\": \"{{externalDocumentNo}}\",\n  \"sellToCustomerNo\": \"{{customerNo}}\",\n  \"shipmentDate\": \"2026-06-22\",\n  \"salespersonCode\": \"{{salespersonCode}}\",\n  \"shipToCode\": \"{{shipToCode}}\",\n  \"shipToName\": \"{{shipToName}}\",\n  \"customerSpecification\": \"No onions\",\n  \"pdaOrder\": false,\n  \"externalOrderUrl\": \"https://bot.example.com/orders/{{externalDocumentNo}}\",\n  \"lines\": [\n    {\n      \"lineNo\": 10000,\n      \"itemNo\": \"{{itemNo}}\",\n      \"quantity\": 12,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Vacuum packed\"\n    },\n    {\n      \"lineNo\": 20000,\n      \"itemNo\": \"{{itemNo2}}\",\n      \"quantity\": 5,\n      \"unitOfMeasure\": \"{{uom}}\",\n      \"productSpecification\": \"Tray packed\"\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/bc-api/imported-orders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "bc-api",
+                    "imported-orders"
+                  ]
+                },
+                "description": "Stages a single imported sales document through the custom Business Central API pages. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both. If BC_API_TEST_* is configured, the same payload is also posted to the test BC API target and the response includes a targets array."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('BC API imported order is staged', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.provider).to.eql('bcApi');",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json.lineCount).to.be.a('number');",
+                      "  pm.expect(json.status).to.eql('imported');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Get Imported Document via BC API Pages",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/bc-api/imported-orders/{{externalDocumentNo}}?company={{company}}&target=primary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "bc-api",
+                    "imported-orders",
+                    "{{externalDocumentNo}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "target",
+                      "value": "primary",
+                      "description": "Use test when BC_API_TEST_* is configured."
+                    }
+                  ]
+                },
+                "description": "Reads imported document lines through the custom Business Central API pages for Imported Orders, Imported SalesAL, Imported Return Orders, and Imported Credit Notes AL. Set target=test to inspect the configured test BC API target."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('BC API imported document is returned', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.provider).to.eql('bcApi');",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.externalDocumentNo).to.eql(pm.collectionVariables.get('externalDocumentNo') || pm.variables.get('externalDocumentNo'));",
+                      "  pm.expect(json.lines).to.be.an('object');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List Historical Posted Sales Invoice Lines - Missing Filters",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/historical-sales-invoice-lines?company={{company}}&limit=100",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "historical-sales-invoice-lines"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "100"
+                    }
+                  ]
+                },
+                "description": "Negative test: unfiltered historical invoice line requests should return 400 instead of scanning the full posted invoice line table."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Missing historical invoice filters returns 400', function () {",
+                      "  pm.response.to.have.status(400);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.error).to.include('At least one filter');",
+                      "  pm.expect(json.requiredFilters).to.include('externalDocumentNo');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "List Live Imported Lines Missing on Test",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders/missing-on-test?company={{company}}&shipmentDateFrom=2026-08-12&limit=100",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders",
+                    "missing-on-test"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "shipmentDateFrom",
+                      "value": "2026-08-12"
+                    },
+                    {
+                      "key": "shipmentDateTo",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "limit",
+                      "value": "100"
+                    }
+                  ]
+                },
+                "description": "Compares primary SQL staging with the configured test SQL mirror and returns live/primary imported staging lines missing on test. Defaults shipmentDateFrom to the 12th day of the current month when omitted."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Live missing on test response is paginated', function () {",
+                      "  pm.response.to.have.status(200);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.liveTarget).to.eql('primary');",
+                      "  pm.expect(json.testTarget).to.eql('test');",
+                      "  pm.expect(json.data).to.be.an('array');",
+                      "  pm.expect(json.hasNext).to.be.a('boolean');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "Push Live Imported Lines Missing on Test",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/test/imported-orders/push-missing-to-test?company={{company}}&shipmentDateFrom=2026-08-12",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "test",
+                    "imported-orders",
+                    "push-missing-to-test"
+                  ],
+                  "query": [
+                    {
+                      "key": "company",
+                      "value": "{{company}}"
+                    },
+                    {
+                      "key": "shipmentDateFrom",
+                      "value": "2026-08-12"
+                    },
+                    {
+                      "key": "shipmentDateTo",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Copies imported staging rows from live/primary into the configured test SQL mirror for rows missing on test. Existing test rows are not duplicated."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Missing live rows are pushed to test', function () {",
+                      "  pm.response.to.have.status(201);",
+                      "  const json = pm.response.json();",
+                      "  pm.expect(json.company).to.eql(pm.collectionVariables.get('company') || pm.variables.get('company'));",
+                      "  pm.expect(json.liveTarget).to.eql('primary');",
+                      "  pm.expect(json.testTarget).to.eql('test');",
+                      "  pm.expect(json.insertedLineCount).to.be.a('number');",
+                      "  pm.expect(json.sources).to.be.an('array');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Sales Price Master Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/test/sales-prices?company={{company}}&limit=100&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "test",
+                "sales-prices"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "itemNos",
+                  "value": "J31010101,J31010201",
+                  "disabled": true
+                },
+                {
+                  "key": "customerPriceGroup",
+                  "value": "WHOLESALE",
+                  "disabled": true
+                },
+                {
+                  "key": "customerNo",
+                  "value": "101",
+                  "disabled": true
+                },
+                {
+                  "key": "salesType",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "salesCode",
+                  "value": "WHOLESALE",
+                  "disabled": true
+                },
+                {
+                  "key": "currencyCode",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "unitOfMeasureCode",
+                  "value": "KG",
+                  "disabled": true
+                },
+                {
+                  "key": "variantCode",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "validOn",
+                  "value": "2026-09-21",
+                  "disabled": true
+                },
+                {
+                  "key": "quantity",
+                  "value": "10",
+                  "disabled": true
+                },
+                {
+                  "key": "minUnitPrice",
+                  "value": "100",
+                  "disabled": true
+                },
+                {
+                  "key": "maxUnitPrice",
+                  "value": "500",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Company flags: CM, FCL, FLM, RMK. Optional filters are disabled below; enable as needed. Use customerNo or customerPriceGroup, not both. All enabled filters are combined with AND."
+          },
+          "response": []
+        },
+        {
+          "name": "Inventory Posting Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/test/inventory-posting-groups?company={{company}}&limit=100&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "test",
+                "inventory-posting-groups"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "code",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Production Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/test/production-categories?company={{company}}&limit=100&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "test",
+                "production-categories"
+              ],
+              "query": [
+                {
+                  "key": "company",
+                  "value": "{{company}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "code",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "parentCode",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Inventory Posting Groups",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/inventory-posting-groups?company={{company}}&limit=100&page=1",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "inventory-posting-groups"
+          ],
+          "query": [
+            {
+              "key": "company",
+              "value": "{{company}}"
+            },
+            {
+              "key": "limit",
+              "value": "100"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "code",
+              "value": "",
+              "disabled": true
+            },
+            {
+              "key": "search",
+              "value": "",
+              "disabled": true
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Production Categories",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/production-categories?company={{company}}&limit=100&page=1",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "production-categories"
+          ],
+          "query": [
+            {
+              "key": "company",
+              "value": "{{company}}"
+            },
+            {
+              "key": "limit",
+              "value": "100"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "code",
+              "value": "",
+              "disabled": true
+            },
+            {
+              "key": "parentCode",
+              "value": "",
+              "disabled": true
+            },
+            {
+              "key": "search",
+              "value": "",
+              "disabled": true
+            }
+          ]
+        }
+      },
+      "response": []
     }
   ]
 }

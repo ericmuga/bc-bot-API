@@ -1,7 +1,7 @@
 const YAML = require('yaml');
 
 function createSpec(baseUrl = 'http://localhost:3500') {
-  return {
+  const document = {
   openapi: '3.0.3',
   info: {
     title: 'FCL BOT Integration API',
@@ -97,6 +97,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           customerNo: { type: 'string', example: '101' },
           name: { type: 'string', example: 'Braeburn School' },
           sector: { type: 'string', example: 'HORECA' },
+          customerPriceGroup: { type: 'string', example: 'WHOLESALE' },
           shipTo: {
             type: 'array',
             items: {
@@ -121,15 +122,34 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           }
         }
       },
+      SalesPrice: {"type": "object", "properties": {"itemNo": {"type": "string"}, "salesType": {"type": "integer"}, "salesCode": {"type": "string"}, "currencyCode": {"type": "string"}, "startingDate": {"type": "string"}, "endingDate": {"type": "string"}, "unitPrice": {"type": "number"}, "minimumQuantity": {"type": "number"}, "unitOfMeasureCode": {"type": "string"}, "variantCode": {"type": "string"}, "priceIncludesVAT": {"type": "boolean"}, "allowInvoiceDiscount": {"type": "boolean"}, "allowLineDiscount": {"type": "boolean"}, "vatBusinessPostingGroup": {"type": "string"}}},
       Item: {
         type: 'object',
         properties: {
+          unitsOfMeasure: {
+            type: 'array',
+            description: 'Company-specific Item Unit of Measure rows. Base unit is first with factor 1. Multiply a quantity by its factor to obtain base-unit quantity.',
+            items: {
+              type: 'object',
+              required: ['code', 'StandardUnitConversionFactor'],
+              properties: {
+                code: { type: 'string', example: 'BOX' },
+                StandardUnitConversionFactor: { type: 'number', example: 12, description: 'Qty. per Unit of Measure from Item Unit of Measure; the base unit is always 1.' }
+              }
+            }
+          },
+          productionCategory: { type: 'string', description: 'Item extension Production Category code, matched to global Item Attributes.Code.' },
+          category: { type: 'string', description: 'Matching global Item Attributes.Attribute; empty if unmatched.' },
+          parentCategoryCode: { type: 'string', description: 'Matching attribute Parent_Code.' },
+          parentCategory: { type: 'string', description: 'Immediate parent Attribute; empty when absent.' },
+          inventoryPostingGroup: { type: 'string', description: 'Inventory Posting Group code from the company Item table.' },
           id: { type: 'string', example: 'J31010101' },
           itemNo: { type: 'string', example: 'J31010101' },
           description: { type: 'string', example: 'Pork Chipolatas 200gms' },
           baseUnitOfMeasure: { type: 'string', example: 'KG' },
           salesUnitOfMeasure: { type: 'string', example: 'PC' },
           barcodeNo: { type: 'string', example: '' },
+          unitPrice: { type: 'number', example: 116 },
         }
       },
       Salesperson: {
@@ -512,6 +532,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       get: {
         summary: 'List web customers',
         parameters: [
+          { name: 'customerPriceGroup', in: 'query', schema: { type: 'string' }, description: 'Exact customer price group; an empty value matches unassigned customers.' },
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Broad text search against customer number or customer name.' },
           { name: 'customerNo', in: 'query', schema: { type: 'array', items: { type: 'string' } }, style: 'form', explode: true, description: 'Exact customer number filter. Can be repeated: customerNo=A&customerNo=B.' },
@@ -558,6 +579,18 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       get: {
         summary: 'List PDA items',
         parameters: [
+          { name: 'productionCategory', in: 'query', schema: { type: 'string' }, description: 'Exact Production Category code.' },
+          { name: 'inventoryPostingGroup', in: 'query', schema: { type: 'string' }, description: 'Exact inventory posting group code; empty matches blank codes.' },
+          {"name": "minUnitPrice", "in": "query", "schema": {"type": "number", "minimum": 0}},
+          {"name": "maxUnitPrice", "in": "query", "schema": {"type": "number", "minimum": 0}},
+          {"name": "itemNo", "in": "query", "schema": {"type": "string"}},
+          {"name": "itemNos", "in": "query", "schema": {"type": "string"}},
+          {"name": "description", "in": "query", "schema": {"type": "string"}},
+          {"name": "barcode", "in": "query", "schema": {"type": "string"}},
+          {"name": "barcodeNo", "in": "query", "schema": {"type": "string"}},
+          {"name": "uom", "in": "query", "schema": {"type": "string"}},
+          {"name": "baseUnitOfMeasure", "in": "query", "schema": {"type": "string"}},
+          {"name": "salesUnitOfMeasure", "in": "query", "schema": {"type": "string"}},
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           { name: 'search', in: 'query', schema: { type: 'string' } },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
@@ -584,6 +617,57 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     data: {
                       type: 'array',
                       items: { $ref: '#/components/schemas/Item' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/api/sales-prices': {
+      get: {
+        summary: 'List sales price master data',
+        parameters: [
+          {"name": "minUnitPrice", "in": "query", "schema": {"type": "number", "minimum": 0}},
+          {"name": "maxUnitPrice", "in": "query", "schema": {"type": "number", "minimum": 0}},
+          {"name": "itemNos", "in": "query", "schema": {"type": "string"}, "description": "Exact item numbers as repeated values, comma-separated values, or JSON array."},
+          {"name": "customerNo", "in": "query", "schema": {"type": "string"}, "description": "Customer-specific prices (sales type 0). Mutually exclusive with customerPriceGroup."},
+          {"name": "customerPriceGroup", "in": "query", "schema": {"type": "string"}, "description": "Group-specific prices (sales type 1). Mutually exclusive with customerNo."},
+          {"name": "validOn", "in": "query", "schema": {"type": "string"}, "description": "Prices valid on YYYY-MM-DD, including open-ended BC dates."},
+          {"name": "quantity", "in": "query", "schema": {"type": "number", "minimum": 0}, "description": "Return price tiers with minimumQuantity <= quantity; does not select the best price."},
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          {"name": "itemNo", "in": "query", "schema": {"type": "string"}},
+          {"name": "salesCode", "in": "query", "schema": {"type": "string"}},
+          {"name": "currencyCode", "in": "query", "schema": {"type": "string"}},
+          {"name": "unitOfMeasureCode", "in": "query", "schema": {"type": "string"}},
+          {"name": "variantCode", "in": "query", "schema": {"type": "string"}},
+          { name: 'salesType', in: 'query', schema: { type: 'integer', minimum: 0, maximum: 3 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+        ],
+        responses: {
+          200: {
+            description: 'Sales Price table rows; includes expired and future prices. No best-price calculation.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 25 },
+                    totalCount: { type: 'integer', example: 250 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 25 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 10 },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
+                    data: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/SalesPrice' }
                     }
                   }
                 }
@@ -844,7 +928,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       },
       post: {
         summary: 'Create an imported sales document',
-        description: 'Writes line-based sales data into Business Central staging. Accepts either a single document object, an array of document objects, or { orders: [...] }. documentType=order writes to Imported Orders; invoice writes to Imported SalesAL; returnOrder writes to Imported Return Orders; creditNote writes to Imported Credit Notes AL. Before writing each document, the API checks staging, Sales Header, posted invoices, and posted credit memos for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover.',
+        description: 'Writes line-based sales data into Business Central staging. Accepts either a single document object, an array of document objects, or { orders: [...] }. documentType=order writes to Imported Orders; invoice writes to Imported SalesAL; returnOrder writes to Imported Return Orders; creditNote writes to Imported Credit Notes AL. Before writing each document, the API checks staging, Sales Header, posted invoices, and posted credit memos for the same External Document No.; if not found, it waits for the configured safety delay and checks again to avoid duplicates during BC posting handover. When SQL_WRITE_TEST_* is configured, the same document is also staged to the test write target and the response includes a targets array.',
         requestBody: {
           required: true,
           content: {
@@ -967,7 +1051,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     '/api/bc-api/imported-orders': {
       post: {
         summary: 'Create an imported sales document through BC API pages',
-        description: 'Alternative import path that posts one line at a time to the custom Business Central API pages under /api/fcl/bot/v1.0. Supports the same documentType values as /api/imported-orders: order, invoice, returnOrder, and creditNote. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both.',
+        description: 'Alternative import path that posts one line at a time to the custom Business Central API pages under /api/fcl/bot/v1.0. Supports the same documentType values as /api/imported-orders: order, invoice, returnOrder, and creditNote. Enable with BC_ACCESS_MODE=api or BC_ACCESS_MODE=both. When BC_API_TEST_* is configured, the same document is also posted to the test BC API target and the response includes a targets array.',
         requestBody: {
           required: true,
           content: {
@@ -995,12 +1079,48 @@ function createSpec(baseUrl = 'http://localhost:3500') {
             required: true,
             schema: { type: 'string' }
           },
-          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } }
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          { name: 'target', in: 'query', schema: { type: 'string', enum: ['primary', 'live', 'test'], default: 'primary' }, description: 'BC API target to inspect. Use test when BC_API_TEST_* is configured.' }
         ],
         responses: {
           200: { description: 'Imported document lines from BC API pages' },
           404: { description: 'Imported document not found through BC API pages' },
           503: { description: 'BC API page access is disabled or not configured' }
+        }
+      }
+    },
+    '/api/imported-orders/missing-on-test': {
+      get: {
+        summary: 'List live imported staging lines missing on test',
+        description: 'Compares the primary SQL write target with the configured SQL test mirror and returns imported staging lines that exist on live/primary but not on test. Defaults shipmentDateFrom to the 12th day of the current month.',
+        parameters: [
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          { name: 'shipmentDateFrom', in: 'query', schema: { type: 'string', format: 'date', default: '2026-08-12' }, description: 'Lower bound for staging shipment/date. Defaults to the 12th of the current month.' },
+          { name: 'shipmentDateTo', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Optional upper bound for staging shipment/date.' },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+        ],
+        responses: {
+          200: { description: 'Live imported staging lines that are missing on test' },
+          400: { description: 'Invalid company or date filter' },
+          503: { description: 'SQL test mirror is not configured' }
+        }
+      }
+    },
+    '/api/imported-orders/push-missing-to-test': {
+      post: {
+        summary: 'Push live imported staging lines missing on test',
+        description: 'Copies imported staging rows from the primary SQL write target into the configured SQL test mirror for rows that are missing on test. Defaults shipmentDateFrom to the 12th day of the current month. Existing test rows are not duplicated.',
+        parameters: [
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          { name: 'shipmentDateFrom', in: 'query', schema: { type: 'string', format: 'date', default: '2026-08-12' }, description: 'Lower bound for staging shipment/date. Defaults to the 12th of the current month.' },
+          { name: 'shipmentDateTo', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Optional upper bound for staging shipment/date.' }
+        ],
+        responses: {
+          201: { description: 'Missing live rows copied to test' },
+          400: { description: 'Invalid company or date filter' },
+          503: { description: 'SQL test mirror is not configured' }
         }
       }
     },
@@ -1069,6 +1189,36 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     }
   }
 };
+  for (const [path, summary, fields, filters, description] of [
+    ['/api/inventory-posting-groups', 'List inventory posting groups', ['code', 'description'], ['code', 'search'], 'Reads Inventory Posting Group for the selected company.'],
+    ['/api/production-categories', 'List production categories', ['code', 'category', 'parentCode', 'parentCategory'], ['code', 'parentCode', 'search'], 'Reads the shared global Item Attributes table for all companies. parentCode filters immediate children; an empty parentCode selects blank-parent rows. company is validated and echoed but does not restrict the shared table.']
+  ]) {
+    const response = JSON.parse(JSON.stringify(document.paths['/api/items'].get.responses));
+    const properties = response[200].content['application/json'].schema.properties;
+    properties.data.items = { type: 'object', properties: Object.fromEntries(fields.map(field => [field, { type: 'string' }])) };
+    if (path.endsWith('production-categories')) properties.scope = { type: 'string', enum: ['global'] };
+    response[200].description = summary;
+    document.paths[path] = { get: {
+      summary, description,
+      parameters: [
+        { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+        ...filters.map(name => ({ name, in: 'query', schema: { type: 'string' }, description: name === 'search' ? 'Partial code or name search.' : 'Exact code filter.' })),
+        ...document.paths['/api/items'].get.parameters.filter(parameter => ['limit', 'page', 'offset'].includes(parameter.name))
+      ], responses: response
+    } };
+  }
+  for (const [path, operations] of Object.entries({ ...document.paths })) {
+    if (!path.startsWith('/api/')) continue;
+    const testOperations = JSON.parse(JSON.stringify(operations));
+    for (const [method, operation] of Object.entries(testOperations)) {
+      if (!['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].includes(method)) continue;
+      operation.summary = `[Test writes] ${operation.summary || ''}`;
+      operation.description = `${operation.description || ''} On this path, writes go only to the configured test destination, with no primary write or mirroring. Reads keep their usual source. Company flags apply as usual. Missing or primary-equivalent test configuration rejects writes with 503.`.trim();
+      if (operation.operationId) operation.operationId += 'Test';
+    }
+    document.paths[path.replace('/api/', '/api/test/')] = testOperations;
+  }
+  return document;
 }
 
 const spec = createSpec();

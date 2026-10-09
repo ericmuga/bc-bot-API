@@ -1,10 +1,37 @@
 const express = require('express');
 const path = require('path');
-const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, bracket } = require('./db');
+const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, resolveTable, bracket } = require('./db');
 const config = require('./config');
 const bcApi = require('./bcApi');
+const { addItemCategories } = require('./itemCategories');
+const { addItemUnits } = require('./itemUnits');
 
 const router = express.Router();
+// A path-selected test mode cannot be overridden by request body/query targets.
+router.use('/test', (req, res, next) => {
+  req.testWritesOnly = true;
+  router(req, res, next);
+});
+
+function requireTestTarget(provider) {
+  const isSql = provider === 'sql';
+  const target = (isSql ? config.sqlWriteMirrors : config.bcApiMirrors).find((entry) => entry.name === 'test');
+  const normalize = (value) => String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+  const primary = isSql ? config.sqlWrite : config.bcApi;
+  const missing = !target || (isSql
+    ? !target.server || !target.database || !target.user || !target.password
+    : !target.baseUrl);
+  const sameDestination = !missing && (isSql
+    ? normalize(target.server) === normalize(primary.server) && target.port === primary.port && normalize(target.database) === normalize(primary.database)
+    : normalize(target.baseUrl) === normalize(primary.baseUrl));
+  if (missing || sameDestination) {
+    const error = new Error(`${isSql ? 'SQL_WRITE_TEST' : 'BC_API_TEST'} must configure a separate test destination. Test writes cannot use the primary destination.`);
+    error.statusCode = 503;
+    throw error;
+  }
+  return target;
+}
+
 const POSTMAN_COLLECTION_FILENAME = 'FCL BOT Integration API.postman_collection.json';
 const postmanCollectionPath = path.join(__dirname, '..', POSTMAN_COLLECTION_FILENAME);
 
@@ -113,6 +140,28 @@ function optionalStringList(...values) {
   return [...new Set(result)];
 }
 
+function addUnitPriceFilters(query, filters, addParameter, column) {
+  const bounds = {};
+  for (const [name, operator] of [['minUnitPrice', '>='], ['maxUnitPrice', '<=']]) {
+    if (query[name] === undefined) continue;
+    const text = optionalString(query[name]);
+    const value = Number(text);
+    if (!text || !Number.isFinite(value) || value < 0) {
+      const error = new Error(`${name} must be a non-negative number.`);
+      error.statusCode = 400;
+      throw error;
+    }
+    bounds[name] = value;
+    addParameter(name, bcDecimalType(), bcDecimalValue(value));
+    filters.push(`${column} ${operator} ${bcDecimalParameter(name)}`);
+  }
+  if (bounds.minUnitPrice > bounds.maxUnitPrice) {
+    const error = new Error('minUnitPrice must not exceed maxUnitPrice.');
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
 function companyFromRequest(req) {
   return optionalString(req.params.company || req.query.company || req.body?.company || config.companies.defaultCode).toUpperCase();
 }
@@ -144,6 +193,10 @@ function maskedDatabaseInfo(companyCode) {
     ...maskedSqlInfo(config.sql),
     read: maskedSqlInfo(config.sql),
     write: maskedSqlInfo(config.sqlWrite),
+    writeMirrors: config.sqlWriteMirrors.map((target) => ({
+      name: target.name,
+      ...maskedSqlInfo(target)
+    })),
     defaultCompany: config.companies.defaultCode,
     selectedCompany: company.code,
     selectedPrefix: `${company.prefix}$`
@@ -168,6 +221,12 @@ function optionalNumber(value, fallback = 0) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function defaultTwelfthOfCurrentMonth() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-12`;
 }
 
 function bcDecimalType() {
@@ -877,12 +936,13 @@ async function findExistingExternalDocument(pool, tables, externalDocumentNo) {
   return matches;
 }
 
-async function assertExternalDocumentCanBeImported(pool, tables, companyCode, externalDocumentNo) {
+async function assertExternalDocumentCanBeImported(pool, tables, companyCode, externalDocumentNo, targetName = 'primary') {
   const beforeDelayMatches = await findExistingExternalDocument(pool, tables, externalDocumentNo);
   if (beforeDelayMatches.length) {
     const error = new Error('External document number already exists in Business Central.');
     error.statusCode = 409;
     error.details = {
+      target: targetName,
       company: companyCode,
       externalDocumentNo,
       matches: beforeDelayMatches
@@ -900,6 +960,7 @@ async function assertExternalDocumentCanBeImported(pool, tables, companyCode, ex
     const error = new Error('External document number appeared in Business Central during import safety recheck.');
     error.statusCode = 409;
     error.details = {
+      target: targetName,
       company: companyCode,
       externalDocumentNo,
       delayMs,
@@ -1120,12 +1181,29 @@ function bcApiEntitySetForDocumentType(documentType) {
   return 'importedOrders';
 }
 
-async function getBcApiImportedDocumentLines(companyCode, externalDocumentNo) {
+function bcApiTargetByName(targetName) {
+  const normalizedTargetName = optionalString(targetName || 'primary').toLowerCase();
+  if (!normalizedTargetName || normalizedTargetName === 'primary' || normalizedTargetName === 'live') {
+    return { name: 'primary', config: config.bcApi };
+  }
+
+  const mirror = config.bcApiMirrors.find((target) => target.name.toLowerCase() === normalizedTargetName);
+  if (!mirror) {
+    const allowed = ['primary', 'live', ...config.bcApiMirrors.map((target) => target.name)].join(', ');
+    const error = new Error(`Invalid BC API target '${normalizedTargetName}'. Use one of: ${allowed}.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return { name: mirror.name, config: mirror };
+}
+
+async function getBcApiImportedDocumentLines(companyCode, externalDocumentNo, target) {
   const [importedOrders, importedSalesAL, importedReturnOrders, importedCreditNotesAL] = await Promise.all([
-    bcApi.getLinesByExternalDocumentNo('importedOrders', companyCode, 'externalDocumentNo', externalDocumentNo),
-    bcApi.getLinesByExternalDocumentNo('importedSalesAL', companyCode, 'extDocNo', externalDocumentNo),
-    bcApi.getLinesByExternalDocumentNo('importedReturnOrders', companyCode, 'externalDocumentNo', externalDocumentNo),
-    bcApi.getLinesByExternalDocumentNo('importedCreditNotesAL', companyCode, 'extDocNo', externalDocumentNo)
+    bcApi.getLinesByExternalDocumentNo('importedOrders', companyCode, 'externalDocumentNo', externalDocumentNo, target),
+    bcApi.getLinesByExternalDocumentNo('importedSalesAL', companyCode, 'extDocNo', externalDocumentNo, target),
+    bcApi.getLinesByExternalDocumentNo('importedReturnOrders', companyCode, 'externalDocumentNo', externalDocumentNo, target),
+    bcApi.getLinesByExternalDocumentNo('importedCreditNotesAL', companyCode, 'extDocNo', externalDocumentNo, target)
   ]);
 
   return {
@@ -1136,8 +1214,8 @@ async function getBcApiImportedDocumentLines(companyCode, externalDocumentNo) {
   };
 }
 
-async function assertBcApiExternalDocumentNotInStaging(companyCode, externalDocumentNo) {
-  const matches = await getBcApiImportedDocumentLines(companyCode, externalDocumentNo);
+async function assertBcApiExternalDocumentNotInStaging(companyCode, externalDocumentNo, target = config.bcApi, targetName = 'primary') {
+  const matches = await getBcApiImportedDocumentLines(companyCode, externalDocumentNo, target);
   const totalMatches = Object.values(matches).reduce((total, lines) => total + lines.length, 0);
   if (!totalMatches) {
     return;
@@ -1146,6 +1224,7 @@ async function assertBcApiExternalDocumentNotInStaging(companyCode, externalDocu
   const error = new Error('External document number already exists in Business Central staging API pages.');
   error.statusCode = 409;
   error.details = {
+    target: targetName,
     company: companyCode,
     externalDocumentNo,
     matches: Object.entries(matches)
@@ -1166,6 +1245,313 @@ function addImportedOrderFilter(filters, request, query, queryName, sqlType, col
 
   request.input(parameterName, sqlType, value);
   filters.push(`${bracket(columnName)} = @${parameterName}`);
+}
+
+const importedStagingSources = [
+  {
+    documentType: 'order',
+    tableKey: 'importedOrders',
+    externalDocumentNo: 'External Document No_',
+    lineNo: 'Line No_',
+    shipmentDate: 'Shipment Date',
+    sellToCustomerNo: 'Sell-to Customer No_',
+    itemNo: 'Item No_',
+    quantity: 'Quantity',
+    unitOfMeasure: 'Unit of Measure'
+  },
+  {
+    documentType: 'invoice',
+    tableKey: 'importedSalesAL',
+    externalDocumentNo: 'ExtDocNo',
+    lineNo: 'LineNo',
+    shipmentDate: 'Date',
+    sellToCustomerNo: 'CustNO',
+    itemNo: 'ItemNo',
+    quantity: 'Qty',
+    unitOfMeasure: 'SUOM'
+  },
+  {
+    documentType: 'returnOrder',
+    tableKey: 'importedReturnOrders',
+    externalDocumentNo: 'External Document No_',
+    lineNo: 'Line No_',
+    shipmentDate: 'Shipment Date',
+    sellToCustomerNo: 'Sell-to Customer No_',
+    itemNo: 'Item No_',
+    quantity: 'Quantity',
+    unitOfMeasure: 'Unit of Measure'
+  },
+  {
+    documentType: 'creditNote',
+    tableKey: 'importedCreditNotesAL',
+    externalDocumentNo: 'ExtDocNo',
+    lineNo: 'LineNo',
+    shipmentDate: 'Date',
+    sellToCustomerNo: 'CustNO',
+    itemNo: 'ItemNo',
+    quantity: 'Qty',
+    unitOfMeasure: 'SUOM'
+  }
+];
+
+function stagingLineKey(line) {
+  return `${line.documentType}|${line.externalDocumentNo}|${line.lineNo}`;
+}
+
+async function getImportedStagingLines(pool, tables, { shipmentDateFrom, shipmentDateTo }) {
+  const rows = [];
+
+  for (const source of importedStagingSources) {
+    const table = tables[source.tableKey];
+    if (!table) {
+      continue;
+    }
+
+    const request = pool.request()
+      .input('shipmentDateFrom', sql.Date, shipmentDateFrom);
+    const filters = [`${bracket(source.shipmentDate)} >= @shipmentDateFrom`];
+
+    if (shipmentDateTo) {
+      request.input('shipmentDateTo', sql.Date, shipmentDateTo);
+      filters.push(`${bracket(source.shipmentDate)} <= @shipmentDateTo`);
+    }
+
+    const result = await request.query(`
+      SELECT
+        ${bracket(source.externalDocumentNo)} AS externalDocumentNo,
+        ${bracket(source.lineNo)} AS ${bracket('lineNo')},
+        ${bracket(source.shipmentDate)} AS shipmentDate,
+        ${bracket(source.sellToCustomerNo)} AS sellToCustomerNo,
+        ${bracket(source.itemNo)} AS itemNo,
+        ${bracket(source.quantity)} AS quantity,
+        ${bracket(source.unitOfMeasure)} AS unitOfMeasure
+      FROM ${table}
+      WHERE ${filters.join(' AND ')}
+    `);
+
+    rows.push(...result.recordset.map((line) => ({
+      documentType: source.documentType,
+      externalDocumentNo: line.externalDocumentNo || '',
+      lineNo: Number(line.lineNo) || 0,
+      shipmentDate: line.shipmentDate,
+      sellToCustomerNo: line.sellToCustomerNo || '',
+      itemNo: line.itemNo || '',
+      quantity: Number(line.quantity) || 0,
+      unitOfMeasure: line.unitOfMeasure || ''
+    })));
+  }
+
+  return rows;
+}
+
+async function getImportedOrdersMissingOnTest(req) {
+  const testMirror = config.sqlWriteMirrors.find((target) => target.name === 'test');
+  if (!testMirror) {
+    const error = new Error('SQL test mirror is not configured. Set SQL_WRITE_TEST_SERVER, SQL_WRITE_TEST_DATABASE, SQL_WRITE_TEST_USER, and SQL_WRITE_TEST_PASSWORD.');
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const companyCode = companyFromRequest(req);
+  const company = getCompanyConfig(companyCode);
+  const shipmentDateFrom = toBcDate(optionalString(req.query.shipmentDateFrom) || defaultTwelfthOfCurrentMonth(), 'shipmentDateFrom');
+  const shipmentDateTo = optionalString(req.query.shipmentDateTo)
+    ? toBcDate(req.query.shipmentDateTo, 'shipmentDateTo')
+    : '';
+  const pagination = paginationFromQuery(req.query);
+  const [livePool, testPool] = await Promise.all([
+    getPool('write'),
+    getPool('write:test')
+  ]);
+  const [liveTables, testTables] = await Promise.all([
+    getTables(company.code, 'write'),
+    getTables(company.code, 'write:test')
+  ]);
+  const [liveLines, testLines] = await Promise.all([
+    getImportedStagingLines(livePool, liveTables, { shipmentDateFrom, shipmentDateTo }),
+    getImportedStagingLines(testPool, testTables, { shipmentDateFrom, shipmentDateTo })
+  ]);
+  const testKeys = new Set(testLines.map(stagingLineKey));
+  const missing = liveLines
+    .filter((line) => !testKeys.has(stagingLineKey(line)))
+    .sort((left, right) => (
+      String(left.shipmentDate).localeCompare(String(right.shipmentDate)) ||
+      left.documentType.localeCompare(right.documentType) ||
+      left.externalDocumentNo.localeCompare(right.externalDocumentNo) ||
+      left.lineNo - right.lineNo
+    ));
+  const paged = missing.slice(pagination.offset, pagination.offset + pagination.limit);
+
+  return {
+    company: company.code,
+    liveTarget: 'primary',
+    testTarget: testMirror.name,
+    shipmentDateFrom,
+    shipmentDateTo: shipmentDateTo || null,
+    liveLineCount: liveLines.length,
+    testLineCount: testLines.length,
+    count: paged.length,
+    totalCount: missing.length,
+    page: pagination.page,
+    limit: pagination.limit,
+    offset: pagination.offset,
+    totalPages: missing.length > 0 ? Math.ceil(missing.length / pagination.limit) : 0,
+    hasNext: pagination.offset + paged.length < missing.length,
+    hasPrevious: pagination.offset > 0,
+    data: paged
+  };
+}
+
+async function getInsertableColumns(pool, table) {
+  const result = await pool.request()
+    .input('tableName', sql.NVarChar, table)
+    .query(`
+      SELECT c.name
+      FROM sys.columns c
+      WHERE c.object_id = OBJECT_ID(@tableName)
+        AND c.is_identity = 0
+        AND c.is_computed = 0
+        AND c.system_type_id <> 189
+      ORDER BY c.column_id
+    `);
+
+  return result.recordset.map((row) => row.name);
+}
+
+function sharedColumns(leftColumns, rightColumns) {
+  const right = new Set(rightColumns.map((column) => column.toLowerCase()));
+  return leftColumns.filter((column) => right.has(column.toLowerCase()));
+}
+
+async function getStagingKeysForSource(pool, table, source, { shipmentDateFrom, shipmentDateTo }) {
+  const request = pool.request()
+    .input('shipmentDateFrom', sql.Date, shipmentDateFrom);
+  const filters = [`${bracket(source.shipmentDate)} >= @shipmentDateFrom`];
+
+  if (shipmentDateTo) {
+    request.input('shipmentDateTo', sql.Date, shipmentDateTo);
+    filters.push(`${bracket(source.shipmentDate)} <= @shipmentDateTo`);
+  }
+
+  const result = await request.query(`
+    SELECT
+      ${bracket(source.externalDocumentNo)} AS externalDocumentNo,
+      ${bracket(source.lineNo)} AS ${bracket('lineNo')}
+    FROM ${table}
+    WHERE ${filters.join(' AND ')}
+  `);
+
+  return new Set(result.recordset.map((line) => stagingLineKey({
+    documentType: source.documentType,
+    externalDocumentNo: line.externalDocumentNo || '',
+    lineNo: Number(line.lineNo) || 0
+  })));
+}
+
+async function getRowsForStagingSource(pool, table, source, columns, { shipmentDateFrom, shipmentDateTo }) {
+  const request = pool.request()
+    .input('shipmentDateFrom', sql.Date, shipmentDateFrom);
+  const filters = [`${bracket(source.shipmentDate)} >= @shipmentDateFrom`];
+
+  if (shipmentDateTo) {
+    request.input('shipmentDateTo', sql.Date, shipmentDateTo);
+    filters.push(`${bracket(source.shipmentDate)} <= @shipmentDateTo`);
+  }
+
+  const result = await request.query(`
+    SELECT ${columns.map(bracket).join(', ')}
+    FROM ${table}
+    WHERE ${filters.join(' AND ')}
+  `);
+
+  return result.recordset;
+}
+
+async function insertStagingRow(pool, table, columns, row) {
+  const request = pool.request();
+  columns.forEach((column, index) => {
+    request.input(`value${index}`, row[column]);
+  });
+
+  await request.query(`
+    INSERT INTO ${table} (${columns.map(bracket).join(', ')})
+    VALUES (${columns.map((_, index) => `@value${index}`).join(', ')})
+  `);
+}
+
+async function pushImportedOrdersMissingToTest(req) {
+  requireTestTarget('sql');
+  const testMirror = config.sqlWriteMirrors.find((target) => target.name === 'test');
+  if (!testMirror) {
+    const error = new Error('SQL test mirror is not configured. Set SQL_WRITE_TEST_SERVER, SQL_WRITE_TEST_DATABASE, SQL_WRITE_TEST_USER, and SQL_WRITE_TEST_PASSWORD.');
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const companyCode = companyFromRequest(req);
+  const company = getCompanyConfig(companyCode);
+  const shipmentDateFrom = toBcDate(optionalString(req.query.shipmentDateFrom || req.body?.shipmentDateFrom) || defaultTwelfthOfCurrentMonth(), 'shipmentDateFrom');
+  const shipmentDateToValue = optionalString(req.query.shipmentDateTo || req.body?.shipmentDateTo);
+  const shipmentDateTo = shipmentDateToValue ? toBcDate(shipmentDateToValue, 'shipmentDateTo') : '';
+  const [livePool, testPool] = await Promise.all([
+    getPool('write'),
+    getPool('write:test')
+  ]);
+  const [liveTables, testTables] = await Promise.all([
+    getTables(company.code, 'write'),
+    getTables(company.code, 'write:test')
+  ]);
+  const result = {
+    company: company.code,
+    liveTarget: 'primary',
+    testTarget: testMirror.name,
+    shipmentDateFrom,
+    shipmentDateTo: shipmentDateTo || null,
+    insertedLineCount: 0,
+    sources: []
+  };
+
+  for (const source of importedStagingSources) {
+    const liveTable = liveTables[source.tableKey];
+    const testTable = testTables[source.tableKey];
+    if (!liveTable || !testTable) {
+      result.sources.push({
+        documentType: source.documentType,
+        sourceTable: source.tableKey,
+        skipped: true,
+        reason: 'Table is not available on live or test.'
+      });
+      continue;
+    }
+
+    const [liveColumns, testColumns, testKeys] = await Promise.all([
+      getInsertableColumns(livePool, liveTable),
+      getInsertableColumns(testPool, testTable),
+      getStagingKeysForSource(testPool, testTable, source, { shipmentDateFrom, shipmentDateTo })
+    ]);
+    const columns = sharedColumns(liveColumns, testColumns);
+    const rows = await getRowsForStagingSource(livePool, liveTable, source, columns, { shipmentDateFrom, shipmentDateTo });
+    const missingRows = rows.filter((row) => !testKeys.has(stagingLineKey({
+      documentType: source.documentType,
+      externalDocumentNo: row[source.externalDocumentNo] || '',
+      lineNo: Number(row[source.lineNo]) || 0
+    })));
+
+    for (const row of missingRows) {
+      await insertStagingRow(testPool, testTable, columns, row);
+    }
+
+    result.insertedLineCount += missingRows.length;
+    result.sources.push({
+      documentType: source.documentType,
+      sourceTable: source.tableKey,
+      liveLineCount: rows.length,
+      missingLineCount: missingRows.length,
+      insertedLineCount: missingRows.length
+    });
+  }
+
+  return result;
 }
 
 function addAliasedFilter(filters, request, query, queryName, sqlType, qualifiedColumn, parameterName = queryName) {
@@ -1217,7 +1603,9 @@ router.get('/status', asyncHandler(async (req, res) => {
     access: {
       mode: config.access.mode,
       sqlEnabled: config.access.sqlEnabled,
-      apiPagesEnabled: config.access.apiPagesEnabled
+      apiPagesEnabled: config.access.apiPagesEnabled,
+      sqlWriteMirrors: config.sqlWriteMirrors.map((target) => target.name),
+      bcApiMirrors: config.bcApiMirrors.map((target) => target.name)
     },
     defaults: {
       importedOrderStatus: config.defaults.importedOrderStatus,
@@ -1349,6 +1737,10 @@ router.get('/customers', asyncHandler(async (req, res) => {
     .input('offset', sql.Int, pagination.offset)
     .input('search', sql.NVarChar, `%${search}%`);
   const filters = [];
+  if (req.query.customerPriceGroup !== undefined) {
+    request.input('customerPriceGroup', sql.NVarChar, optionalString(req.query.customerPriceGroup));
+    filters.push(`c.${bracket('Customer Price Group')} = @customerPriceGroup`);
+  }
   const customerNos = optionalStringList(req.query.customerNo, req.query.customerNos, req.query.customers, req.query.id);
   const name = optionalString(req.query.name || req.query.customerName);
   const shipToCode = optionalString(req.query.shipToCode || req.query.shipTo);
@@ -1388,6 +1780,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
       SELECT
         c.${bracket('No_')} AS customerNo,
         c.${bracket('Name')} AS name,
+        c.${bracket('Customer Price Group')} AS customerPriceGroup,
         ${sectorExpression} AS sector
       FROM ${customer} c
       ${customerExtJoin}
@@ -1402,6 +1795,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
         customerNo,
         name,
         sector,
+        customerPriceGroup,
         COUNT(*) OVER() AS totalCount
       FROM MatchingCustomers
       ORDER BY customerNo
@@ -1412,6 +1806,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
       fc.customerNo,
       fc.name,
       fc.sector,
+      fc.customerPriceGroup,
       fc.totalCount,
       sta.${bracket('Code')} AS shipToCode,
       sta.${bracket('Name')} AS shipToName,
@@ -1439,6 +1834,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
         customerNo: row.customerNo,
         name: row.name,
         sector: row.sector || '',
+        customerPriceGroup: row.customerPriceGroup || '',
         shipTo: []
       };
       byCustomerNo.set(row.customerNo, customerRow);
@@ -1468,6 +1864,162 @@ router.get('/customers', asyncHandler(async (req, res) => {
   res.json(paginatedResponse(companyCode, customers, pagination, totalCount));
 }));
 
+router.get('/sales-prices', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  getCompanyConfig(companyCode);
+  const pagination = paginationFromQuery(req.query);
+  const filters = [];
+  const parameters = [];
+  for (const [name, column] of Object.entries({
+    salesCode: 'Sales Code', currencyCode: 'Currency Code',
+    unitOfMeasureCode: 'Unit of Measure Code', variantCode: 'Variant Code'
+  })) {
+    if (req.query[name] !== undefined) {
+      parameters.push([name, sql.NVarChar, optionalString(req.query[name])]);
+      filters.push(`${bracket(column)} = @${name}`);
+    }
+  }
+  const itemNos = optionalStringList(req.query.itemNo, req.query.itemNos);
+  if (itemNos.length) {
+    const names = itemNos.map((value, index) => {
+      parameters.push([`itemNo${index}`, sql.NVarChar, value]);
+      return `@itemNo${index}`;
+    });
+    filters.push(`[Item No_] IN (${names.join(', ')})`);
+  }
+  for (const [name, type] of [['customerNo', 0], ['customerPriceGroup', 1]]) {
+    if (req.query[name] !== undefined) {
+      parameters.push([name, sql.NVarChar, optionalString(req.query[name])]);
+      filters.push(`[Sales Type] = ${type} AND [Sales Code] = @${name}`);
+    }
+  }
+  if (req.query.customerNo !== undefined && req.query.customerPriceGroup !== undefined) {
+    const error = new Error('Use either customerNo or customerPriceGroup, not both.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (req.query.validOn !== undefined) {
+    const value = optionalString(req.query.validOn);
+    const date = new Date(`${value}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      const error = new Error('validOn must be a valid date in YYYY-MM-DD format.');
+      error.statusCode = 400;
+      throw error;
+    }
+    parameters.push(['validOn', sql.Date, date]);
+    filters.push("([Starting Date] <= @validOn OR [Starting Date] = '17530101') AND ([Ending Date] >= @validOn OR [Ending Date] = '17530101')");
+  }
+  if (req.query.quantity !== undefined) {
+    const text = optionalString(req.query.quantity);
+    const value = Number(text);
+    if (!text || !Number.isFinite(value) || value < 0) {
+      const error = new Error('quantity must be a non-negative number.');
+      error.statusCode = 400;
+      throw error;
+    }
+    parameters.push(['quantity', bcDecimalType(), bcDecimalValue(value)]);
+    filters.push(`[Minimum Quantity] <= ${bcDecimalParameter('quantity')}`);
+  }
+  addUnitPriceFilters(req.query, filters, (...args) => parameters.push(args), '[Unit Price]');
+  if (req.query.salesType !== undefined) {
+    const value = optionalString(req.query.salesType);
+    if (!/^[0-3]$/.test(value)) {
+      const error = new Error('salesType must be an integer from 0 to 3.');
+      error.statusCode = 400;
+      throw error;
+    }
+    parameters.push(['salesType', sql.Int, Number(value)]);
+    filters.push('[Sales Type] = @salesType');
+  }
+  const pool = await getPool();
+  const salesPrice = await resolveTable('Sales Price', config.tables.salesPrice, companyCode);
+  const request = pool.request()
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset);
+  for (const parameter of parameters) request.input(...parameter);
+  const where = filters.length ? filters.join(' AND ') : '1 = 1';
+  const result = await request.query(`
+    SELECT COUNT(*) AS totalCount FROM ${salesPrice} WHERE ${where};
+    SELECT
+      [Item No_] AS itemNo,
+      [Sales Type] AS salesType,
+      [Sales Code] AS salesCode,
+      [Currency Code] AS currencyCode,
+      CONVERT(varchar(10), [Starting Date], 23) AS startingDate,
+      CONVERT(varchar(10), [Ending Date], 23) AS endingDate,
+      [Unit Price] AS unitPrice,
+      [Minimum Quantity] AS minimumQuantity,
+      [Unit of Measure Code] AS unitOfMeasureCode,
+      [Variant Code] AS variantCode,
+      CAST([Price Includes VAT] AS bit) AS priceIncludesVAT,
+      CAST([Allow Invoice Disc_] AS bit) AS allowInvoiceDiscount,
+      CAST([Allow Line Disc_] AS bit) AS allowLineDiscount,
+      [VAT Bus_ Posting Gr_ (Price)] AS vatBusinessPostingGroup
+    FROM ${salesPrice}
+    WHERE ${where}
+    ORDER BY [Item No_], [Sales Type], [Sales Code], [Starting Date],
+      [Currency Code], [Variant Code], [Unit of Measure Code], [Minimum Quantity]
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+  `);
+  res.json(paginatedResponse(companyCode, result.recordsets[1], pagination, result.recordsets[0][0].totalCount));
+}));
+
+router.get('/inventory-posting-groups', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  getCompanyConfig(companyCode);
+  const pagination = paginationFromQuery(req.query);
+  const table = await resolveTable('Inventory Posting Group', config.tables.inventoryPostingGroup, companyCode);
+  const pool = await getPool();
+  const request = pool.request().input('limit', sql.Int, pagination.limit).input('offset', sql.Int, pagination.offset);
+  const filters = [];
+  addAliasedFilter(filters, request, req.query, 'code', sql.NVarChar, '[Code]');
+  const search = optionalString(req.query.search);
+  if (search) {
+    request.input('search', sql.NVarChar, `%${search}%`);
+    filters.push('([Code] LIKE @search OR [Description] LIKE @search)');
+  }
+  const where = filters.length ? filters.join(' AND ') : '1 = 1';
+  const result = await request.query(`
+    SELECT COUNT(*) AS totalCount FROM ${table} WHERE ${where};
+    SELECT [Code] AS code, [Description] AS description FROM ${table}
+    WHERE ${where} ORDER BY [Code]
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+  `);
+  res.json(paginatedResponse(companyCode, result.recordsets[1], pagination, result.recordsets[0][0].totalCount));
+}));
+
+router.get('/production-categories', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  getCompanyConfig(companyCode);
+  const pagination = paginationFromQuery(req.query);
+  const pool = await getPool('itemAttributes');
+  const table = `${bracket(config.sqlItemAttributes.schema)}.${bracket(config.tables.itemAttributes)}`;
+  const request = pool.request().input('limit', sql.Int, pagination.limit).input('offset', sql.Int, pagination.offset);
+  const filters = [];
+  for (const [name, column] of [['code', 'Code'], ['parentCode', 'Parent_Code']]) {
+    if (req.query[name] !== undefined) {
+      request.input(name, sql.NVarChar, optionalString(req.query[name]));
+      filters.push(`child.${bracket(column)} = @${name}`);
+    }
+  }
+  const search = optionalString(req.query.search);
+  if (search) {
+    request.input('search', sql.NVarChar, `%${search}%`);
+    filters.push('(child.[Code] LIKE @search OR child.[Attribute] LIKE @search)');
+  }
+  const where = filters.length ? filters.join(' AND ') : '1 = 1';
+  const result = await request.query(`
+    SELECT COUNT(*) AS totalCount FROM ${table} child WHERE ${where};
+    SELECT child.[Code] AS code, child.[Attribute] AS category,
+      child.[Parent_Code] AS parentCode, COALESCE(parent.[Attribute], '') AS parentCategory
+    FROM ${table} child
+    LEFT JOIN ${table} parent ON parent.[Code] = child.[Parent_Code]
+    WHERE ${where} ORDER BY child.[Code]
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+  `);
+  res.json({ ...paginatedResponse(companyCode, result.recordsets[1], pagination, result.recordsets[0][0].totalCount), scope: 'global' });
+}));
+
 router.get('/items', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
@@ -1481,7 +2033,14 @@ router.get('/items', asyncHandler(async (req, res) => {
   const itemBasePdaItemColumn = itemExtPdaItemColumn
     ? ''
     : await getExistingColumnName(pool, item, 'PDA Item');
-  const itemExtJoin = itemExtPdaItemColumn
+  if (!itemExt) {
+    const error = new Error('The Item extension table is required to resolve Production Category.');
+    error.statusCode = 503;
+    throw error;
+  }
+  const productionCategoryExtColumn = await requireExistingColumnName(pool, itemExt, 'Production Category');
+  const productionCategorySelect = `ie.${bracket(productionCategoryExtColumn)}`;
+  let itemExtJoin = itemExtPdaItemColumn
     ? `INNER JOIN ${itemExt} ie ON ie.${bracket('No_')} = i.${bracket('No_')}`
     : '';
   const pdaItemClause = itemExtPdaItemColumn
@@ -1491,6 +2050,9 @@ router.get('/items', asyncHandler(async (req, res) => {
       : '';
   const barcodeNoExtColumn = itemExt ? await getExistingColumnName(pool, itemExt, 'Bar Code No_') : '';
   const barcodeNoBaseColumn = barcodeNoExtColumn ? '' : await getExistingColumnName(pool, item, 'Bar Code No_');
+  if (!itemExtJoin && (productionCategoryExtColumn || barcodeNoExtColumn)) {
+    itemExtJoin = `LEFT JOIN ${itemExt} ie ON ie.${bracket('No_')} = i.${bracket('No_')}`;
+  }
   const barcodeNoColumn = barcodeNoExtColumn || barcodeNoBaseColumn;
   const barcodeNoAlias = barcodeNoExtColumn ? 'ie' : 'i';
   const blockedColumn = await getExistingColumnName(pool, item, 'Blocked');
@@ -1501,6 +2063,15 @@ router.get('/items', asyncHandler(async (req, res) => {
     .input('offset', sql.Int, pagination.offset)
     .input('search', sql.NVarChar, `%${search}%`);
   const filters = [];
+  if (req.query.productionCategory !== undefined) {
+    request.input('productionCategory', sql.NVarChar, optionalString(req.query.productionCategory));
+    filters.push(`${productionCategorySelect} = @productionCategory`);
+  }
+  if (req.query.inventoryPostingGroup !== undefined) {
+    request.input('inventoryPostingGroup', sql.NVarChar, optionalString(req.query.inventoryPostingGroup));
+    filters.push('i.[Inventory Posting Group] = @inventoryPostingGroup');
+  }
+  addUnitPriceFilters(req.query, filters, (...args) => request.input(...args), 'i.[Unit Price]');
   const itemNos = optionalStringList(req.query.itemNo, req.query.itemNos, req.query.items, req.query.id);
   const description = optionalString(req.query.description);
   const uom = optionalString(req.query.uom || req.query.unitOfMeasure);
@@ -1571,6 +2142,9 @@ router.get('/items', asyncHandler(async (req, res) => {
         i.${bracket('No_')} AS id,
         i.${bracket('No_')} AS itemNo,
         i.${bracket('Description')} AS description,
+        i.${bracket('Unit Price')} AS unitPrice,
+        i.${bracket('Inventory Posting Group')} AS inventoryPostingGroup,
+        ${productionCategorySelect} AS productionCategory,
         i.${bracket('Base Unit of Measure')} AS baseUnitOfMeasure,
         i.${bracket('Sales Unit of Measure')} AS salesUnitOfMeasure,
         ${barcodeNoSelect} AS barcodeNo
@@ -1590,7 +2164,8 @@ router.get('/items', asyncHandler(async (req, res) => {
     OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
   `);
 
-  const data = result.recordset.map(({ totalCount, ...line }) => line);
+  const categorizedItems = await addItemCategories(result.recordset.map(({ totalCount, ...line }) => line));
+  const data = await addItemUnits(categorizedItems, companyCode);
   const totalCount = result.recordset[0]?.totalCount || 0;
   res.json(paginatedResponse(companyCode, data, pagination, totalCount));
 }));
@@ -2169,6 +2744,14 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
   });
 }));
 
+router.get('/imported-orders/missing-on-test', asyncHandler(async (req, res) => {
+  res.json(await getImportedOrdersMissingOnTest(req));
+}));
+
+router.post('/imported-orders/push-missing-to-test', asyncHandler(async (req, res) => {
+  res.status(201).json(await pushImportedOrdersMissingToTest(req));
+}));
+
 router.get('/imported-orders/:externalDocumentNo', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);
@@ -2289,7 +2872,8 @@ router.get('/bc-api/imported-orders/:externalDocumentNo', asyncHandler(async (re
   const companyCode = companyFromRequest(req);
   const company = getCompanyConfig(companyCode);
   const externalDocumentNo = requireString(req.params.externalDocumentNo, 'externalDocumentNo');
-  const lines = await getBcApiImportedDocumentLines(company.code, externalDocumentNo);
+  const target = bcApiTargetByName(req.query.target);
+  const lines = await getBcApiImportedDocumentLines(company.code, externalDocumentNo, target.config);
   const lineCount = Object.values(lines).reduce((total, stagedLines) => total + stagedLines.length, 0);
 
   if (!lineCount) {
@@ -2298,6 +2882,7 @@ router.get('/bc-api/imported-orders/:externalDocumentNo', asyncHandler(async (re
 
   return res.json({
     provider: 'bcApi',
+    target: target.name,
     company: company.code,
     externalDocumentNo,
     lineCount,
@@ -2310,38 +2895,58 @@ router.post('/bc-api/imported-orders', asyncHandler(async (req, res) => {
   const company = getCompanyConfig(companyFromRequest(req));
   const document = buildImportedDocumentFromBody(body, company);
 
-  if (config.access.sqlEnabled) {
+  const targets = req.testWritesOnly
+    ? [{ name: 'test', config: requireTestTarget('bcApi') }]
+    : [{ name: 'primary', config: config.bcApi }, ...config.bcApiMirrors.map((target) => ({ name: target.name, config: target }))];
+
+  if (config.access.sqlEnabled && !req.testWritesOnly) {
     const pool = await getPool('write');
     const tables = await getTables(company.code, 'write');
     await assertExternalDocumentCanBeImported(pool, tables, company.code, document.externalDocumentNo);
   } else {
-    await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo);
+    for (const target of targets) {
+      await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo, target.config, target.name);
+    }
     const delayMs = config.defaults.importDuplicateRecheckDelayMs;
     if (delayMs > 0) {
       await delay(delayMs);
     }
-    await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo);
+    for (const target of targets) {
+      await assertBcApiExternalDocumentNotInStaging(company.code, document.externalDocumentNo, target.config, target.name);
+    }
   }
 
   const entitySetName = bcApiEntitySetForDocumentType(document.documentType);
-  const stagedLines = [];
-  for (const line of document.lines) {
-    stagedLines.push(await bcApi.postLine(entitySetName, company.code, toBcApiLinePayload(document, line)));
+  const targetResults = [];
+
+  for (const target of targets) {
+    const stagedLines = [];
+    for (const line of document.lines) {
+      stagedLines.push(await bcApi.postLine(entitySetName, company.code, toBcApiLinePayload(document, line), target.config));
+    }
+
+    targetResults.push({
+      target: target.name,
+      lineCount: stagedLines.length,
+      status: 'imported'
+    });
   }
 
   return res.status(201).json({
     provider: 'bcApi',
+    target: req.testWritesOnly ? 'test' : 'primary',
+    targets: targetResults,
     company: company.code,
     documentType: document.documentType,
     externalDocumentNo: document.externalDocumentNo,
-    lineCount: stagedLines.length,
+    lineCount: targetResults[0]?.lineCount || 0,
     pdaOrder: document.documentType === 'order' ? document.pdaOrder : undefined,
     entitySetName,
     status: 'imported'
   });
 }));
 
-async function stageImportedOrderSql(body) {
+async function stageImportedOrderSql(body, role = 'write', targetName = 'primary') {
   const companyCode = companyFromRequest({ params: {}, query: {}, body });
   const company = getCompanyConfig(companyCode);
   const documentType = documentTypeFromValue(body.documentType);
@@ -2385,9 +2990,9 @@ async function stageImportedOrderSql(body) {
   const totalHeaderQty = optionalNumber(body.totalHeaderQty, lines.reduce((total, line) => total + line.quantity, 0));
   const totalHeaderAmount = optionalNumber(body.totalHeaderAmount, lines.reduce((total, line) => total + line.lineAmount, 0));
 
-  const pool = await getPool('write');
-  const tables = await getTables(company.code, 'write');
-  await assertExternalDocumentCanBeImported(pool, tables, company.code, externalDocumentNo);
+  const pool = await getPool(role);
+  const tables = await getTables(company.code, role);
+  await assertExternalDocumentCanBeImported(pool, tables, company.code, externalDocumentNo, targetName);
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
 
@@ -2693,6 +3298,7 @@ async function stageImportedOrderSql(body) {
 
     await transaction.commit();
     return {
+      target: targetName,
       company: company.code,
       documentType,
       externalDocumentNo,
@@ -2706,12 +3312,31 @@ async function stageImportedOrderSql(body) {
   }
 }
 
+async function stageImportedOrderSqlForTargets(body, testWritesOnly = false) {
+  if (testWritesOnly) {
+    requireTestTarget('sql');
+    const result = await stageImportedOrderSql(body, 'write:test', 'test');
+    return { ...result, targets: [result] };
+  }
+  const primaryResult = await stageImportedOrderSql(body, 'write', 'primary');
+  const targetResults = [primaryResult];
+
+  for (const mirror of config.sqlWriteMirrors) {
+    targetResults.push(await stageImportedOrderSql(body, `write:${mirror.name}`, mirror.name));
+  }
+
+  return {
+    ...primaryResult,
+    targets: targetResults
+  };
+}
+
 router.post('/imported-orders', asyncHandler(async (req, res) => {
   const body = req.body || {};
   const orders = Array.isArray(body) ? body : Array.isArray(body.orders) ? body.orders : null;
 
   if (!orders) {
-    return res.status(201).json(await stageImportedOrderSql(body));
+    return res.status(201).json(await stageImportedOrderSqlForTargets({ ...body, company: companyFromRequest(req) }, req.testWritesOnly));
   }
 
   if (!orders.length) {
@@ -2721,7 +3346,7 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
   const results = [];
   for (const [index, order] of orders.entries()) {
     try {
-      results.push(await stageImportedOrderSql(order));
+      results.push(await stageImportedOrderSqlForTargets({ ...order, company: companyFromRequest({ ...req, body: { ...body, ...order } }) }, req.testWritesOnly));
     } catch (err) {
       err.details = {
         ...(err.details || {}),

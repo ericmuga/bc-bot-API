@@ -9,35 +9,42 @@ function ensureFetch() {
   }
 }
 
-function ensureBcApiConfigured() {
+function ensureBcApiConfigured(target) {
   if (!config.access.apiPagesEnabled) {
     const error = new Error('BC API page access is disabled. Set BC_ACCESS_MODE=api or BC_ACCESS_MODE=both.');
     error.statusCode = 503;
     throw error;
   }
 
-  if (!config.bcApi.baseUrl) {
+  if (!bcApiTarget(target).baseUrl) {
     const error = new Error('BC_API_BASE_URL is not configured.');
     error.statusCode = 503;
     throw error;
   }
 }
 
-function getCompanyId(companyCode) {
-  const company = getCompanyConfig(companyCode);
-  return config.bcApi.companyIds[company.code] || company.code;
+function bcApiTarget(target) {
+  return target || config.bcApi;
 }
 
-function authHeaders() {
-  if (config.bcApi.bearerToken) {
+function getCompanyId(companyCode, target) {
+  const company = getCompanyConfig(companyCode);
+  const apiTarget = bcApiTarget(target);
+  return apiTarget.companyIds[company.code] || company.code;
+}
+
+function authHeaders(target) {
+  const apiTarget = bcApiTarget(target);
+
+  if (apiTarget.bearerToken) {
     return {
-      Authorization: `Bearer ${config.bcApi.bearerToken}`
+      Authorization: `Bearer ${apiTarget.bearerToken}`
     };
   }
 
-  if (config.bcApi.username && config.bcApi.password) {
+  if (apiTarget.username && apiTarget.password) {
     return {
-      Authorization: `Basic ${Buffer.from(`${config.bcApi.username}:${config.bcApi.password}`).toString('base64')}`
+      Authorization: `Basic ${Buffer.from(`${apiTarget.username}:${apiTarget.password}`).toString('base64')}`
     };
   }
 
@@ -48,14 +55,15 @@ function odataString(value) {
   return `'${String(value || '').replace(/'/g, "''")}'`;
 }
 
-function buildUrl(entitySetName, companyCode, query = {}) {
-  const companyId = encodeURIComponent(getCompanyId(companyCode));
+function buildUrl(entitySetName, companyCode, query = {}, target) {
+  const apiTarget = bcApiTarget(target);
+  const companyId = encodeURIComponent(getCompanyId(companyCode, apiTarget));
   const path = [
-    config.bcApi.baseUrl,
+    apiTarget.baseUrl,
     'api',
-    config.bcApi.publisher,
-    config.bcApi.group,
-    config.bcApi.version,
+    apiTarget.publisher,
+    apiTarget.group,
+    apiTarget.version,
     `companies(${companyId})`,
     entitySetName
   ].join('/');
@@ -71,20 +79,27 @@ function buildUrl(entitySetName, companyCode, query = {}) {
   return queryString ? `${path}?${queryString}` : path;
 }
 
-async function requestJson(method, entitySetName, companyCode, body, query) {
+async function requestJson(method, entitySetName, companyCode, body, query, target) {
   ensureFetch();
-  ensureBcApiConfigured();
+  ensureBcApiConfigured(target);
+  const apiTarget = bcApiTarget(target);
+
+  if (!apiTarget.baseUrl) {
+    const error = new Error(`BC API target '${apiTarget.name || 'primary'}' is missing a base URL.`);
+    error.statusCode = 503;
+    throw error;
+  }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.bcApi.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), apiTarget.timeoutMs);
 
   try {
-    const response = await fetch(buildUrl(entitySetName, companyCode, query), {
+    const response = await fetch(buildUrl(entitySetName, companyCode, query, apiTarget), {
       method,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...authHeaders()
+        ...authHeaders(apiTarget)
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal
@@ -139,14 +154,14 @@ function sortByLineNo(lines) {
   });
 }
 
-async function postLine(entitySetName, companyCode, line) {
-  return requestJson('POST', entitySetName, companyCode, line);
+async function postLine(entitySetName, companyCode, line, target) {
+  return requestJson('POST', entitySetName, companyCode, line, null, target);
 }
 
-async function getLinesByExternalDocumentNo(entitySetName, companyCode, fieldName, externalDocumentNo) {
+async function getLinesByExternalDocumentNo(entitySetName, companyCode, fieldName, externalDocumentNo, target) {
   return sortByLineNo(normalizeCollection(await requestJson('GET', entitySetName, companyCode, null, {
     '$filter': `${fieldName} eq ${odataString(externalDocumentNo)}`
-  })));
+  }, target)));
 }
 
 module.exports = {

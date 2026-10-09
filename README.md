@@ -171,6 +171,7 @@ GET  /api/status
 GET  /api/status/:externalDocumentNo
 POST /api/status/batch
 GET  /api/customers
+GET  /api/sales-prices
 GET  /api/items
 GET  /api/salespeople
 GET  /api/historical-sales-invoice-lines
@@ -404,6 +405,7 @@ GET /api/customers?company=FCL&shipToName=BRAEBURN
       "customerNo": "101",
       "name": "Braeburn School",
       "sector": "HORECA",
+      "customerPriceGroup": "WHOLESALE",
       "shipTo": [
         {
           "code": "101",
@@ -453,6 +455,7 @@ GET /api/items?company=FCL&description=beef
       "description": "Pork Chipolatas 200gms",
       "baseUnitOfMeasure": "KG",
       "salesUnitOfMeasure": "PC",
+      "unitPrice": 116,
       "barcodeNo": ""
     }
   ]
@@ -776,3 +779,51 @@ creditNote  -> /api/fcl/bot/v1.0/companies({id})/importedCreditNotesAL
 When `BC_ACCESS_MODE=both`, the API-page import still uses the SQL duplicate scan before posting so it can check staging, live Sales Header, posted Sales Invoice Header, and posted Sales Cr.Memo Header. When `BC_ACCESS_MODE=api`, the API-page import checks only the staging API pages unless additional BC API pages are exposed for live/posted sales documents.
 
 Public integrations should rely only on the documented HTTP endpoints, request payloads, response payloads, company flags, status values, and error codes in this guide.
+
+## Sales Price Master Data
+
+`GET /api/sales-prices?company=FCL` reads the selected company's Sales Price table, with the standard pagination envelope (`limit`, `page`, `offset`, total count). It returns raw prices, including expired/future records, without calculating a best price.
+
+Exact filters: `salesType` (0-3), `salesCode`, `currencyCode`, `unitOfMeasureCode`, `variantCode`. Blank codes can be filtered using empty values. `itemNo` and `itemNos` accept repeated values, comma-separated values, or JSON arrays. `customerNo` selects type 0; `customerPriceGroup` selects type 1; these two filters are mutually exclusive. All filters combine with AND. `validOn=YYYY-MM-DD` includes open-ended BC dates. `quantity` selects tiers whose minimum quantity is met. `minUnitPrice` and `maxUnitPrice` apply to items and sales prices; numbers must be non-negative and the minimum cannot exceed the maximum.
+
+Rows include item, sales type/code, currency, starting/ending dates, unit price, minimum quantity, UOM, variant, VAT and discount flags. Dates preserve BC blank-date values. Override table discovery with `SQL_TABLE_SALES_PRICE`, using the full matching company table name.
+
+Customers return `customerPriceGroup` and support an exact filter of the same name. Items return `unitPrice`. Company flags CM, FCL, FLM and RMK are case-insensitive and select company tables; omitted flags use the configured default and unknown flags return 400.
+
+## Test-only writes
+
+Use `/api/test` as the API base path, or `/test` as a shorter alias. All existing routes are available; writes go only to test, with no primary write or mirror fan-out. Existing `/api` routes retain their behavior and the same API key is required.
+
+This covers orders, invoices, return orders, credit notes, and SQL batches. Query company takes precedence over body company; batches otherwise use each order's company, then envelope/default company. Request target values cannot override test mode; write responses identify target `test`.
+
+Reads, including POST status/batch, keep their usual sources. Push-missing-to-test reads primary staging and inserts only into test. SQL test imports perform duplicate checks within test; BC API test imports check only test staging API pages.
+
+Configure `SQL_WRITE_TEST_SERVER`, `SQL_WRITE_TEST_DATABASE`, `SQL_WRITE_TEST_USER`, `SQL_WRITE_TEST_PASSWORD`, or `BC_API_TEST_BASE_URL` with its test authentication/company settings. Missing or primary-equivalent targets reject writes with 503, with no live fallback. Different aliases pointing to the same server cannot be detected automatically.
+
+## Swagger behind the public HTTPS proxy
+
+Set `PUBLIC_BASE_URL=https://nav.farmerschoice.co.ke:8092` in the running deployment's `.env`, then restart the service. If unset, Swagger uses a relative URL to retain the browser's public origin and optional X-Forwarded-Prefix. Check service environment overrides if Swagger displays an internal HTTP address. Reload `/docs` and verify the `servers` value in `/openapi.json`.
+
+## Item categories and inventory posting groups
+
+Items include `inventoryPostingGroup` from the selected company's Item table. Filter by exact code with `inventoryPostingGroup=FINISHED`; an empty filter matches blank codes.
+
+`productionCategory` is the Item Production Category code. `category` is the matching global Item Attributes.Attribute. `parentCategoryCode` is its Parent_Code and `parentCategory` is the immediate parent's Attribute. The joins are Production Category to Code, then Parent_Code to parent Code. Unmatched codes or absent parents produce empty names without removing items or changing pagination. Filter by exact item code using `productionCategory=CODE`.
+
+The shared read-only lookup uses server `172.16.10.8`, database `FCL`, schema `dbo`, table `Item Attributes$23dc970e-11e8-4d9b-8613-b7582aec86ba` for every company. Production Category is resolved exclusively on the selected company's Item extension table, including extension-suffixed column names. A missing extension table or column returns 503.
+
+Override with `SQL_ITEM_ATTRIBUTES_SERVER`, `SQL_ITEM_ATTRIBUTES_PORT`, `SQL_ITEM_ATTRIBUTES_DATABASE`, `SQL_ITEM_ATTRIBUTES_SCHEMA`, `SQL_ITEM_ATTRIBUTES_USER`, `SQL_ITEM_ATTRIBUTES_PASSWORD`, and `SQL_TABLE_ITEM_ATTRIBUTES` (unqualified table name). Credentials default to existing SQL read credentials. Test prefixes do not change this read source. Lookup failures return an error rather than silently hiding categories.
+
+## Inventory posting groups and production categories
+
+`GET /api/inventory-posting-groups?company=FCL` returns `code` and `description` from the selected company's Inventory Posting Group table. Supports exact `code` and partial `search` (code/description). All four company flags apply. Set `SQL_TABLE_INVENTORY_POSTING_GROUP` if automatic table discovery needs an override.
+
+`GET /api/production-categories` returns `code`, `category`, `parentCode`, and `parentCategory` from the shared Item Attributes table on 172.16.10.8/FCL. Supports exact `code`, exact `parentCode`, and partial `search` (code/category). Use `parentCode=` for blank-parent rows or `parentCode=CODE` for immediate children. The response includes `scope: "global"`; company is validated and echoed but does not filter this shared table.
+
+Both endpoints support `limit`, `page`, and `offset`, return standard pagination metadata including totals on empty pages, and are available under `/api/test` and `/test` with unchanged read sources.
+
+## Item unit conversion factors
+
+Items include `unitsOfMeasure`, an array of `{ "code": "BOX", "StandardUnitConversionFactor": 12 }` entries from the selected company's Item Unit of Measure table. The factor is Qty. per Unit of Measure: multiply a quantity in that UOM by this factor to obtain the quantity in the base UOM. For a base of PC and BOX factor 12, 2 BOX = 24 PC.
+
+The declared base UOM is always first with factor 1, even if its UOM row is missing. Other units use their stored factors; missing non-base units are not assigned invented factors. Existing `baseUnitOfMeasure` and `salesUnitOfMeasure` string fields remain available. All company flags and test read routes use the same behavior. `SQL_TABLE_ITEM_UNIT_OF_MEASURE` optionally overrides automatic company table discovery.

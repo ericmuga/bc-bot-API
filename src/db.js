@@ -6,11 +6,26 @@ const poolPromises = new Map();
 const tableCache = new Map();
 
 function connectionConfigForRole(role = 'read') {
-  return role === 'write' ? config.sqlWrite : config.sql;
+  if (role === 'itemAttributes') return config.sqlItemAttributes;
+  if (role === 'write') {
+    return config.sqlWrite;
+  }
+
+  if (String(role).startsWith('write:')) {
+    const mirrorName = String(role).slice('write:'.length);
+    const mirror = config.sqlWriteMirrors.find((target) => target.name === mirrorName);
+    if (!mirror) {
+      throw new Error(`SQL write mirror '${mirrorName}' is not configured.`);
+    }
+
+    return mirror;
+  }
+
+  return config.sql;
 }
 
 function getPool(role = 'read') {
-  const normalizedRole = role === 'write' ? 'write' : 'read';
+  const normalizedRole = role === 'itemAttributes' || role === 'write' || String(role).startsWith('write:') ? role : 'read';
   if (!poolPromises.has(normalizedRole)) {
     const connectionConfig = connectionConfigForRole(normalizedRole);
     const poolPromise = new sql.ConnectionPool({
@@ -255,6 +270,7 @@ async function getAllCompanyTables() {
 module.exports = {
   sql,
   getPool,
+  resolveTable,
   getTables,
   getAllCompanyTables,
   getCompanyConfig,

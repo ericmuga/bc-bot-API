@@ -17,13 +17,12 @@ function getBaseUrl(req) {
     return config.publicBaseUrl.replace(/\/$/, '');
   }
 
-  const forwardedProto = req.get('x-forwarded-proto');
-  const forwardedHost = req.get('x-forwarded-host');
-  const forwardedPrefix = req.get('x-forwarded-prefix') || '';
-  const proto = forwardedProto ? forwardedProto.split(',')[0].trim() : req.protocol;
-  const host = forwardedHost ? forwardedHost.split(',')[0].trim() : req.get('host');
-
-  return `${proto}://${host}${forwardedPrefix}`;
+  // Relative server URLs keep Swagger on the browser's public HTTPS origin
+  // even when a reverse proxy forwards an internal host and HTTP scheme.
+  const prefix = (req.get('x-forwarded-prefix') || '').split(',')[0].trim();
+  return prefix.startsWith('/') && !prefix.startsWith('//')
+    ? prefix.replace(/\/+$/, '') || '/'
+    : '/';
 }
 
 app.get('/', (req, res) => {
@@ -47,6 +46,10 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
   })(req, res, next);
 });
 
+app.use('/test', requireApiKey, (req, res, next) => {
+  req.testWritesOnly = true;
+  routes(req, res, next);
+});
 app.use('/api', requireApiKey, routes);
 app.use(errorHandler);
 
