@@ -640,7 +640,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           {"name": "customerNo", "in": "query", "schema": {"type": "string"}, "description": "Prices applicable to the customer: customer-specific (sales type 0), the customer's price group (type 1) and All Customers (type 2). Add salesType to narrow. 404 when the customer does not exist. Mutually exclusive with customerPriceGroup."},
           {"name": "customerPriceGroup", "in": "query", "schema": {"type": "string"}, "description": "Group-specific prices (sales type 1). Mutually exclusive with customerNo."},
           {"name": "validOn", "in": "query", "schema": {"type": "string"}, "description": "Prices valid on YYYY-MM-DD, including open-ended BC dates."},
-          {"name": "date", "in": "query", "schema": {"type": "string", "format": "date"}, "description": "Alias of validOn: excludes expired and not-yet-started prices for YYYY-MM-DD. Combine with customerNo to get the customer's current prices."},
+          {"name": "date", "in": "query", "schema": {"type": "string"}, "example": "today", "description": "Alias of validOn: today or YYYY-MM-DD. Excludes expired and not-yet-started prices. Combine with customerNo to get the customer's current prices."},
+          {"name": "changedSince", "in": "query", "schema": {"type": "string"}, "description": "syncToken from an earlier response; returns only prices added or updated since then. Deletions are not reported."},
           {"name": "quantity", "in": "query", "schema": {"type": "number", "minimum": 0}, "description": "Return price tiers with minimumQuantity <= quantity; does not select the best price."},
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           {"name": "itemNo", "in": "query", "schema": {"type": "string"}},
@@ -672,6 +673,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                     hasNext: { type: 'boolean', example: true },
                     hasPrevious: { type: 'boolean', example: false },
+                    syncToken: { type: 'string', example: '184467', description: 'Pass as changedSince on the next sync to fetch only added or updated prices. Store it after the last page.' },
                     data: {
                       type: 'array',
                       items: { $ref: '#/components/schemas/SalesPrice' }
@@ -1221,6 +1223,21 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         ...document.paths['/api/items'].get.parameters.filter(parameter => ['limit', 'page', 'offset'].includes(parameter.name))
       ], responses: response
     } };
+  }
+  const importOperation = document.paths['/api/imported-orders'].post;
+  const exampleHeader = { company: 'FCL', externalDocumentNo: 'BOT-100045', sellToCustomerNo: '101', shipmentDate: '2026-06-22', salespersonCode: '019', shipToCode: '101' };
+  const exampleLine = { lineNo: 10000, itemNo: 'J31010101', quantity: 12, unitOfMeasure: 'PC' };
+  for (const [path, documentType, summary, example] of [
+    ['/api/sales-orders', 'order', 'Create sales orders', { ...exampleHeader, pdaOrder: false, lines: [exampleLine] }],
+    ['/api/sales-invoices', 'invoice', 'Create sales invoices', { ...exampleHeader, location: '3535', cuInvoiceNo: 'CU-100045', cuNo: 'ETR-01', signingTime: '2026-06-22T10:15:00', totalHeaderAmount: 1392, lines: [{ ...exampleLine, unitPrice: 116 }] }],
+    ['/api/sales-returns', 'returnOrder', 'Create sales return orders', { ...exampleHeader, externalDocumentNo: 'BOT-RET-100045', originalOrderNo: 'BOT-100045', returnReasonCode: 'DAMAGED', lines: [exampleLine] }],
+    ['/api/sales-credit-notes', 'creditNote', 'Create sales credit notes', { ...exampleHeader, externalDocumentNo: 'BOT-CN-100045', taxAppliedDocumentNo: 'CU-INV-100045', returnReasonCode: 'DAMAGED', lines: [{ ...exampleLine, unitPrice: 116 }] }]
+  ]) {
+    const operation = JSON.parse(JSON.stringify(importOperation));
+    operation.summary = summary;
+    operation.description = `Dedicated ${documentType} endpoint: same payload and behaviour as POST /api/imported-orders with documentType fixed to ${documentType}. documentType may be omitted; any other value is rejected with 400. Accepts a single document, an array, or { orders: [...] }.`;
+    operation.requestBody.content['application/json'].examples = { single: { summary, value: example }, batch: { summary: 'Batch as array', value: [example] } };
+    document.paths[path] = { post: operation };
   }
   const missingResponse = JSON.parse(JSON.stringify(document.paths['/api/items'].get.responses[200]));
   missingResponse.description = 'Live imported staging lines that are missing on test';

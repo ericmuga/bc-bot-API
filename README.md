@@ -177,6 +177,10 @@ GET  /api/salespeople
 GET  /api/historical-sales-invoice-lines
 GET  /api/imported-orders
 POST /api/imported-orders
+POST /api/sales-orders
+POST /api/sales-invoices
+POST /api/sales-returns
+POST /api/sales-credit-notes
 POST /api/bc-api/imported-orders
 GET  /api/bc-api/imported-orders/:externalDocumentNo
 GET  /api/imported-orders/:externalDocumentNo
@@ -380,6 +384,8 @@ GET /api/imported-orders/BOT-INV-100045/errors?company=FCL
 ```
 
 ## Customer Payload
+
+In `/api/customers` and `/api/items` responses, empty or null fields (including nested ship-to, route, category and unit fields) are returned as the text `"BLANK"`; numbers and booleans are unchanged.
 
 `GET /api/customers` returns web customers with nested ship-to addresses:
 
@@ -761,6 +767,10 @@ Example conflict response:
 }
 ```
 
+### Dedicated document endpoints
+
+`POST /api/sales-orders`, `/api/sales-invoices`, `/api/sales-returns` and `/api/sales-credit-notes` accept the same payload as `POST /api/imported-orders` (single, array or `{ orders: [...] }`) with `documentType` fixed to `order`, `invoice`, `returnOrder` and `creditNote` respectively. `documentType` may be omitted; a different value returns 400. Each also has an `/api/test/...` variant.
+
 ## Data Provider
 
 The API contract is intentionally kept separate from the Business Central access method. The current deployment can read/write through direct SQL or Business Central API pages.
@@ -784,7 +794,9 @@ Public integrations should rely only on the documented HTTP endpoints, request p
 
 `GET /api/sales-prices?company=FCL` reads the selected company's Sales Price table, with the standard pagination envelope (`limit`, `page`, `offset`, total count). It returns raw prices, including expired/future records, without calculating a best price.
 
-Exact filters: `salesType` (0-3), `salesCode`, `currencyCode`, `unitOfMeasureCode`, `variantCode`. Blank codes can be filtered using empty values. `itemNo` and `itemNos` accept repeated values, comma-separated values, or JSON arrays. `customerNo` returns the prices applicable to that customer: customer-specific (type 0), the customer's Customer Price Group (type 1) and All Customers (type 2); add `salesType=0` for customer-specific prices only, and an unknown customer returns 404. `customerPriceGroup` selects type 1; these two filters are mutually exclusive. All filters combine with AND. `date=YYYY-MM-DD` (alias `validOn`) drops expired and future prices, treating blank BC dates as open-ended; for example `?customerNo=101&date=2026-10-27&page=1` returns the customer's current prices, and `nextPage`/`nextOffset` give the next page. `quantity` selects tiers whose minimum quantity is met. `minUnitPrice` and `maxUnitPrice` apply to items and sales prices; numbers must be non-negative and the minimum cannot exceed the maximum.
+Exact filters: `salesType` (0-3), `salesCode`, `currencyCode`, `unitOfMeasureCode`, `variantCode`. Blank codes can be filtered using empty values. `itemNo` and `itemNos` accept repeated values, comma-separated values, or JSON arrays. `customerNo` returns the prices applicable to that customer: customer-specific (type 0), the customer's Customer Price Group (type 1) and All Customers (type 2); add `salesType=0` for customer-specific prices only, and an unknown customer returns 404. `customerPriceGroup` selects type 1; these two filters are mutually exclusive. All filters combine with AND. `date=YYYY-MM-DD` (alias `validOn`) drops expired and future prices, treating blank BC dates as open-ended; for example `?customerNo=101&date=2026-10-27&page=1` returns the customer's current prices, and `nextPage`/`nextOffset` give the next page. `date=today` uses the server's local date.
+
+Delta sync: every response includes `syncToken` (from the BC row version). Store it after the last page and pass it as `changedSince` next time to receive only prices added or updated since. Deletions are not reported, so periodically refresh fully with `date=today`. `quantity` selects tiers whose minimum quantity is met. `minUnitPrice` and `maxUnitPrice` apply to items and sales prices; numbers must be non-negative and the minimum cannot exceed the maximum.
 
 Rows include item, sales type/code, currency, starting/ending dates, unit price, minimum quantity, UOM, variant, VAT and discount flags. Dates preserve BC blank-date values. Override table discovery with `SQL_TABLE_SALES_PRICE`, using the full matching company table name.
 

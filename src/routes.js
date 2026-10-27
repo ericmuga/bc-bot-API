@@ -87,6 +87,20 @@ function paginatedResponse(companyCode, data, pagination, totalCount) {
   };
 }
 
+// Items and customers report empty text and null fields as "BLANK" for BOT clients.
+function blankAsText(value) {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+    return 'BLANK';
+  }
+  if (Array.isArray(value)) {
+    return value.map(blankAsText);
+  }
+  if (typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, blankAsText(field)]));
+  }
+  return value;
+}
+
 function requireString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') {
     const error = new Error(`${name} is required.`);
@@ -1871,7 +1885,7 @@ router.get('/customers', asyncHandler(async (req, res) => {
     }
   }
 
-  res.json(paginatedResponse(companyCode, customers, pagination, totalCount));
+  res.json(paginatedResponse(companyCode, blankAsText(customers), pagination, totalCount));
 }));
 
 router.get('/sales-prices', asyncHandler(async (req, res) => {
@@ -1935,10 +1949,11 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
   }
   const dateName = req.query.date !== undefined ? 'date' : 'validOn';
   if (req.query[dateName] !== undefined) {
-    const value = optionalString(req.query[dateName]);
+    const text = optionalString(req.query[dateName]);
+    const value = text.toLowerCase() === 'today' ? new Date().toLocaleDateString('en-CA') : text;
     const date = new Date(`${value}T00:00:00Z`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-      const error = new Error(`${dateName} must be a valid date in YYYY-MM-DD format.`);
+      const error = new Error(`${dateName} must be today or a valid date in YYYY-MM-DD format.`);
       error.statusCode = 400;
       throw error;
     }
@@ -1957,6 +1972,17 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
     filters.push(`[Minimum Quantity] <= ${bcDecimalParameter('quantity')}`);
   }
   addUnitPriceFilters(req.query, filters, (...args) => parameters.push(args), '[Unit Price]');
+  if (req.query.changedSince !== undefined) {
+    // Delta sync on the BC rowversion: pass the syncToken from an earlier response.
+    const value = optionalString(req.query.changedSince);
+    if (!/^\d{1,19}$/.test(value)) {
+      const error = new Error('changedSince must be a syncToken returned by this endpoint.');
+      error.statusCode = 400;
+      throw error;
+    }
+    parameters.push(['changedSince', sql.BigInt, value]);
+    filters.push('CAST([timestamp] AS bigint) > @changedSince');
+  }
   if (req.query.salesType !== undefined) {
     const value = optionalString(req.query.salesType);
     if (!/^[0-3]$/.test(value)) {
@@ -1975,7 +2001,8 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
   for (const parameter of parameters) request.input(...parameter);
   const where = filters.length ? filters.join(' AND ') : '1 = 1';
   const result = await request.query(`
-    SELECT COUNT(*) AS totalCount FROM ${salesPrice} WHERE ${where};
+    SELECT COUNT(*) AS totalCount, CAST(CAST(MIN_ACTIVE_ROWVERSION() AS bigint) - 1 AS varchar(20)) AS syncToken
+    FROM ${salesPrice} WHERE ${where};
     SELECT
       [Item No_] AS itemNo,
       [Sales Type] AS salesType,
@@ -1997,7 +2024,8 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
       [Currency Code], [Variant Code], [Unit of Measure Code], [Minimum Quantity]
     OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
   `);
-  res.json(paginatedResponse(companyCode, result.recordsets[1], pagination, result.recordsets[0][0].totalCount));
+  const { totalCount, syncToken } = result.recordsets[0][0];
+  res.json({ ...paginatedResponse(companyCode, result.recordsets[1], pagination, totalCount), syncToken });
 }));
 
 router.get('/inventory-posting-groups', asyncHandler(async (req, res) => {
@@ -2203,7 +2231,7 @@ router.get('/items', asyncHandler(async (req, res) => {
   const categorizedItems = await addItemCategories(result.recordset.map(({ totalCount, ...line }) => line));
   const data = await addItemUnits(categorizedItems, companyCode);
   const totalCount = result.recordset[0]?.totalCount || 0;
-  res.json(paginatedResponse(companyCode, data, pagination, totalCount));
+  res.json(paginatedResponse(companyCode, blankAsText(data), pagination, totalCount));
 }));
 
 function routePaymentTypeName(routeType) {
@@ -3368,9 +3396,25 @@ async function stageImportedOrderSqlForTargets(body, testWritesOnly = false) {
   };
 }
 
-router.post('/imported-orders', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const orders = Array.isArray(body) ? body : Array.isArray(body.orders) ? body.orders : null;
+function withDocumentType(document, documentType) {
+  if (!documentType) {
+    return document;
+  }
+
+  if (document?.documentType !== undefined && documentTypeFromValue(document.documentType) !== documentType) {
+    const error = new Error(`documentType must be ${documentType} on this endpoint.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return { ...document, documentType };
+}
+
+const importDocuments = documentType => asyncHandler(async (req, res) => {
+  const rawBody = req.body || {};
+  const rawOrders = Array.isArray(rawBody) ? rawBody : Array.isArray(rawBody.orders) ? rawBody.orders : null;
+  const body = rawOrders ? rawBody : withDocumentType(rawBody, documentType);
+  const orders = rawOrders && rawOrders.map(order => withDocumentType(order, documentType));
 
   if (!orders) {
     return res.status(201).json(await stageImportedOrderSqlForTargets({ ...body, company: companyFromRequest(req) }, req.testWritesOnly));
@@ -3400,6 +3444,12 @@ router.post('/imported-orders', asyncHandler(async (req, res) => {
     status: 'imported',
     orders: results
   });
-}));
+});
+
+router.post('/imported-orders', importDocuments());
+router.post('/sales-orders', importDocuments('order'));
+router.post('/sales-invoices', importDocuments('invoice'));
+router.post('/sales-returns', importDocuments('returnOrder'));
+router.post('/sales-credit-notes', importDocuments('creditNote'));
 
 module.exports = router;
