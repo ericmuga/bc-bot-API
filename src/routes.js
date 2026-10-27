@@ -60,6 +60,14 @@ function paginationFromQuery(query) {
   return { limit, page: Math.floor(offset / limit) + 1, offset };
 }
 
+function nextPageFields(pagination, rowCount, totalCount) {
+  const hasNext = pagination.offset + rowCount < totalCount;
+  return {
+    nextPage: hasNext ? pagination.page + 1 : null,
+    nextOffset: hasNext ? pagination.offset + pagination.limit : null
+  };
+}
+
 function paginatedResponse(companyCode, data, pagination, totalCount) {
   const normalizedTotalCount = Number(totalCount) || 0;
   const totalPages = normalizedTotalCount > 0 ? Math.ceil(normalizedTotalCount / pagination.limit) : 0;
@@ -72,6 +80,7 @@ function paginatedResponse(companyCode, data, pagination, totalCount) {
     limit: pagination.limit,
     offset: pagination.offset,
     totalPages,
+    ...nextPageFields(pagination, data.length, normalizedTotalCount),
     hasNext: pagination.offset + data.length < normalizedTotalCount,
     hasPrevious: pagination.offset > 0,
     data
@@ -1396,6 +1405,7 @@ async function getImportedOrdersMissingOnTest(req) {
     limit: pagination.limit,
     offset: pagination.offset,
     totalPages: missing.length > 0 ? Math.ceil(missing.length / pagination.limit) : 0,
+    ...nextPageFields(pagination, paged.length, missing.length),
     hasNext: pagination.offset + paged.length < missing.length,
     hasPrevious: pagination.offset > 0,
     data: paged
@@ -1887,22 +1897,48 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
     });
     filters.push(`[Item No_] IN (${names.join(', ')})`);
   }
-  for (const [name, type] of [['customerNo', 0], ['customerPriceGroup', 1]]) {
-    if (req.query[name] !== undefined) {
-      parameters.push([name, sql.NVarChar, optionalString(req.query[name])]);
-      filters.push(`[Sales Type] = ${type} AND [Sales Code] = @${name}`);
-    }
-  }
   if (req.query.customerNo !== undefined && req.query.customerPriceGroup !== undefined) {
     const error = new Error('Use either customerNo or customerPriceGroup, not both.');
     error.statusCode = 400;
     throw error;
   }
-  if (req.query.validOn !== undefined) {
-    const value = optionalString(req.query.validOn);
+  if (req.query.customerPriceGroup !== undefined) {
+    parameters.push(['customerPriceGroup', sql.NVarChar, optionalString(req.query.customerPriceGroup)]);
+    filters.push('[Sales Type] = 1 AND [Sales Code] = @customerPriceGroup');
+  }
+  if (req.query.customerNo !== undefined) {
+    // Prices applicable to the customer: its own (type 0), its price group (type 1) and All Customers (type 2).
+    const customerNo = optionalString(req.query.customerNo);
+    const { customer } = await getTables(companyCode);
+    const lookup = await (await getPool()).request()
+      .input('customerNo', sql.NVarChar, customerNo)
+      .query(`SELECT ${bracket('Customer Price Group')} AS customerPriceGroup FROM ${customer} WHERE ${bracket('No_')} = @customerNo`);
+    if (!lookup.recordset.length) {
+      const error = new Error(`Customer ${customerNo} was not found.`);
+      error.statusCode = 404;
+      throw error;
+    }
+    const customerPriceGroup = optionalString(lookup.recordset[0].customerPriceGroup);
+    parameters.push(['customerNo', sql.NVarChar, customerNo]);
+    const scopes = ['([Sales Type] = 0 AND [Sales Code] = @customerNo)', '[Sales Type] = 2'];
+    if (customerPriceGroup) {
+      parameters.push(['customerPriceGroup', sql.NVarChar, customerPriceGroup]);
+      scopes.push('([Sales Type] = 1 AND [Sales Code] = @customerPriceGroup)');
+    }
+    filters.push(`(${scopes.join(' OR ')})`);
+  }
+  if (req.query.date !== undefined && req.query.validOn !== undefined
+    && optionalString(req.query.date) !== optionalString(req.query.validOn)) {
+    const error = new Error('date and validOn are aliases; supply only one.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const dateName = req.query.date !== undefined ? 'date' : 'validOn';
+  if (req.query[dateName] !== undefined) {
+    const value = optionalString(req.query[dateName]);
     const date = new Date(`${value}T00:00:00Z`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-      const error = new Error('validOn must be a valid date in YYYY-MM-DD format.');
+      const error = new Error(`${dateName} must be a valid date in YYYY-MM-DD format.`);
       error.statusCode = 400;
       throw error;
     }
@@ -2736,6 +2772,7 @@ router.get('/imported-orders', asyncHandler(async (req, res) => {
       limit: pagination.limit,
       offset: pagination.offset,
       totalPages,
+      ...nextPageFields(pagination, lines.length, totalLineCount),
       hasNext: pagination.offset + lines.length < totalLineCount,
       hasPrevious: pagination.offset > 0,
       paginationMode: 'lines'

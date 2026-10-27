@@ -544,7 +544,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'shipToName', in: 'query', schema: { type: 'string' }, description: 'Partial nested ship-to name match.' },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -561,6 +561,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     limit: { type: 'integer', example: 25 },
                     offset: { type: 'integer', example: 0 },
                     totalPages: { type: 'integer', example: 10 },
+                    nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                    nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                     hasNext: { type: 'boolean', example: true },
                     hasPrevious: { type: 'boolean', example: false },
                     data: {
@@ -595,7 +597,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'search', in: 'query', schema: { type: 'string' } },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -612,6 +614,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     limit: { type: 'integer', example: 25 },
                     offset: { type: 'integer', example: 0 },
                     totalPages: { type: 'integer', example: 10 },
+                    nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                    nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                     hasNext: { type: 'boolean', example: true },
                     hasPrevious: { type: 'boolean', example: false },
                     data: {
@@ -633,9 +637,10 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           {"name": "minUnitPrice", "in": "query", "schema": {"type": "number", "minimum": 0}},
           {"name": "maxUnitPrice", "in": "query", "schema": {"type": "number", "minimum": 0}},
           {"name": "itemNos", "in": "query", "schema": {"type": "string"}, "description": "Exact item numbers as repeated values, comma-separated values, or JSON array."},
-          {"name": "customerNo", "in": "query", "schema": {"type": "string"}, "description": "Customer-specific prices (sales type 0). Mutually exclusive with customerPriceGroup."},
+          {"name": "customerNo", "in": "query", "schema": {"type": "string"}, "description": "Prices applicable to the customer: customer-specific (sales type 0), the customer's price group (type 1) and All Customers (type 2). Add salesType to narrow. 404 when the customer does not exist. Mutually exclusive with customerPriceGroup."},
           {"name": "customerPriceGroup", "in": "query", "schema": {"type": "string"}, "description": "Group-specific prices (sales type 1). Mutually exclusive with customerNo."},
           {"name": "validOn", "in": "query", "schema": {"type": "string"}, "description": "Prices valid on YYYY-MM-DD, including open-ended BC dates."},
+          {"name": "date", "in": "query", "schema": {"type": "string", "format": "date"}, "description": "Alias of validOn: excludes expired and not-yet-started prices for YYYY-MM-DD. Combine with customerNo to get the customer's current prices."},
           {"name": "quantity", "in": "query", "schema": {"type": "number", "minimum": 0}, "description": "Return price tiers with minimumQuantity <= quantity; does not select the best price."},
           { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
           {"name": "itemNo", "in": "query", "schema": {"type": "string"}},
@@ -646,11 +651,11 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'salesType', in: 'query', schema: { type: 'integer', minimum: 0, maximum: 3 } },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
-            description: 'Sales Price table rows; includes expired and future prices. No best-price calculation.',
+            description: 'Sales Price table rows; includes expired and future prices unless date/validOn is supplied. No best-price calculation.',
             content: {
               'application/json': {
                 schema: {
@@ -663,6 +668,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     limit: { type: 'integer', example: 25 },
                     offset: { type: 'integer', example: 0 },
                     totalPages: { type: 'integer', example: 10 },
+                    nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                    nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                     hasNext: { type: 'boolean', example: true },
                     hasPrevious: { type: 'boolean', example: false },
                     data: {
@@ -714,7 +721,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'phone', in: 'query', schema: { type: 'string' }, description: 'Alias for contactPhone.' },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -731,6 +738,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     limit: { type: 'integer', example: 25 },
                     offset: { type: 'integer', example: 0 },
                     totalPages: { type: 'integer', example: 10 },
+                    nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                    nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                     hasNext: { type: 'boolean', example: true },
                     hasPrevious: { type: 'boolean', example: false },
                     data: {
@@ -764,7 +773,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'itemNo', in: 'query', schema: { type: 'string' } },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -781,6 +790,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                     limit: { type: 'integer', example: 100 },
                     offset: { type: 'integer', example: 0 },
                     totalPages: { type: 'integer', example: 3 },
+                    nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                    nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                     hasNext: { type: 'boolean', example: true },
                     hasPrevious: { type: 'boolean', example: false },
                     data: {
@@ -842,7 +853,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: {
@@ -863,6 +874,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                         limit: { type: 'integer', example: 100 },
                         offset: { type: 'integer', example: 0 },
                         totalPages: { type: 'integer', example: 1 },
+                        nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                        nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
                         hasNext: { type: 'boolean', example: false },
                         hasPrevious: { type: 'boolean', example: false },
                         paginationMode: { type: 'string', example: 'lines' }
@@ -883,6 +896,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
                       limit: 100,
                       offset: 0,
                       totalPages: 1,
+                      nextPage: null,
+                      nextOffset: null,
                       hasNext: false,
                       hasPrevious: false,
                       paginationMode: 'lines'
@@ -1099,7 +1114,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           { name: 'shipmentDateTo', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Optional upper bound for staging shipment/date.' },
           { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
-          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based row offset. Overrides page when supplied.' }
         ],
         responses: {
           200: { description: 'Live imported staging lines that are missing on test' },
@@ -1207,6 +1222,19 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       ], responses: response
     } };
   }
+  const missingResponse = JSON.parse(JSON.stringify(document.paths['/api/items'].get.responses[200]));
+  missingResponse.description = 'Live imported staging lines that are missing on test';
+  const missingProperties = missingResponse.content['application/json'].schema.properties;
+  missingProperties.data.items = { type: 'object' };
+  Object.assign(missingProperties, {
+    liveTarget: { type: 'string', example: 'primary' },
+    testTarget: { type: 'string', example: 'test' },
+    shipmentDateFrom: { type: 'string', format: 'date' },
+    shipmentDateTo: { type: 'string', format: 'date', nullable: true },
+    liveLineCount: { type: 'integer' },
+    testLineCount: { type: 'integer' }
+  });
+  document.paths['/api/imported-orders/missing-on-test'].get.responses[200] = missingResponse;
   for (const [path, operations] of Object.entries({ ...document.paths })) {
     if (!path.startsWith('/api/')) continue;
     const testOperations = JSON.parse(JSON.stringify(operations));
