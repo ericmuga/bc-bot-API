@@ -107,7 +107,9 @@ test('actual SQL staging requests only the test connection', async () => {
 
 test('OpenAPI includes test variants of all documented API paths', () => {
   const spec = require('../src/openapi').createSpec();
-  for (const p of Object.keys(spec.paths).filter(p => p.startsWith('/api/') && !p.startsWith('/api/test/'))) {
+  // STK push charges a real phone and has no test destination.
+  const noTestVariant = ['/api/mpesa/stk-push'];
+  for (const p of Object.keys(spec.paths).filter(p => p.startsWith('/api/') && !p.startsWith('/api/test/') && !noTestVariant.includes(p))) {
     assert(spec.paths[p.replace('/api/', '/api/test/')]);
   }
 });

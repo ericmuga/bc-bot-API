@@ -208,6 +208,18 @@ const config = {
     timeoutMs: intFromEnv(process.env.BC_API_TIMEOUT_MS, 30000)
   },
   bcApiMirrors,
+  // M-Pesa STK push and payment lookups go through the FCL Orders (nav portal) app.
+  fclOrders: {
+    baseUrl: (process.env.FCL_ORDERS_BASE_URL || 'https://nav.farmerschoice.co.ke').replace(/\/+$/, ''),
+    timeoutMs: intFromEnv(process.env.FCL_ORDERS_TIMEOUT_MS, 30000),
+    // Extra CA certificates (comma/semicolon separated, relative to the project root) for portal TLS.
+    caFiles: (process.env.FCL_ORDERS_CA_FILE || 'certs/RapidSSLTLSRSACAG1.pem')
+      .split(/[;,]/)
+      .map((file) => file.trim())
+      .filter(Boolean)
+      .map((file) => path.resolve(__dirname, '..', file)),
+    stkTransactionType: process.env.MPESA_STK_TRANSACTION_TYPE || 'CustomerBuyGoodsOnline'
+  },
   filters: {
     customers: process.env.CUSTOMERS_WHERE || '[Web Portal] = 1 AND [Blocked] = 0',
     items: process.env.ITEMS_WHERE || '[PDA Item] = 1 AND [Blocked] = 0'

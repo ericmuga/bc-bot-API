@@ -1303,6 +1303,141 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       ], responses: response
     } };
   }
+  const mpesaError = (description) => ({
+    description,
+    content: { 'application/json': { schema: { type: 'object', properties: { error: { type: 'string' }, details: { type: 'object', nullable: true } } } } }
+  });
+  Object.assign(document.paths, {
+    '/api/mpesa/stk-push': {
+      post: {
+        summary: 'Send M-Pesa STK push',
+        operationId: 'mpesaStkPush',
+        description: 'Sends an M-Pesa STK (Lipa na M-Pesa) prompt to the customer phone through the FCL Orders app, the same flow as the shop cart. The response only means Safaricom accepted the request; poll GET /api/mpesa/stk-push/{checkoutRequestId} every few seconds until status is paid or failed (the customer has about a minute to respond).',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['phone', 'amount', 'tillNumber', 'storeName'],
+                properties: {
+                  phone: { type: 'string', description: 'Customer Safaricom number. 07XXXXXXXX, 7XXXXXXXX, +2547XXXXXXXX and 2547XXXXXXXX are accepted.', example: '0712345678' },
+                  amount: { type: 'integer', minimum: 1, description: 'Whole Kenya shillings to charge.', example: 1 },
+                  tillNumber: { type: 'string', description: 'Till (Buy Goods) or Paybill number receiving the payment (PartyB).', example: '9051007' },
+                  storeName: { type: 'string', description: 'Shown to the customer as the account reference; truncated to 12 characters.', example: 'FCL SHOP 021' },
+                  storeNumber: { type: 'string', nullable: true, example: '021' },
+                  transactionType: { type: 'string', enum: ['CustomerBuyGoodsOnline', 'CustomerPayBillOnline'], description: 'Defaults to MPESA_STK_TRANSACTION_TYPE (CustomerBuyGoodsOnline).' },
+                  orderId: { type: 'string', nullable: true, description: 'Optional reference used to correlate the M-Pesa callback.', example: 'BOT-100045' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          202: {
+            description: 'STK prompt sent to the customer phone',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'pending' },
+                    message: { type: 'string', example: 'Success. Request accepted for processing' },
+                    amount: { type: 'integer', example: 1 },
+                    checkoutRequestId: { type: 'string', example: 'ws_CO_30102026143012345712345678' },
+                    merchantRequestId: { type: 'string', example: '29115-34620561-1' },
+                    orderId: { type: 'string', nullable: true }
+                  }
+                }
+              }
+            }
+          },
+          400: mpesaError('Invalid phone, amount or missing field'),
+          502: mpesaError('M-Pesa rejected the request'),
+          504: mpesaError('FCL Orders app unreachable or timed out')
+        }
+      }
+    },
+    '/api/mpesa/stk-push/{checkoutRequestId}': {
+      get: {
+        summary: 'Get M-Pesa STK push status',
+        operationId: 'mpesaStkPushStatus',
+        description: 'Queries Safaricom for the result of an STK push. status is pending while the customer has not responded, paid when ResultCode is 0, and failed otherwise (cancelled, wrong PIN, insufficient funds, timeout).',
+        parameters: [
+          { name: 'checkoutRequestId', in: 'path', required: true, schema: { type: 'string' }, example: 'ws_CO_30102026143012345712345678' }
+        ],
+        responses: {
+          200: {
+            description: 'Current STK push status',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    checkoutRequestId: { type: 'string' },
+                    status: { type: 'string', enum: ['pending', 'paid', 'failed'] },
+                    resultCode: { type: 'string', nullable: true, example: '0' },
+                    resultDesc: { type: 'string', nullable: true, example: 'The service request is processed successfully.' },
+                    merchantRequestId: { type: 'string', nullable: true },
+                    raw: { type: 'object', description: 'Unmodified Safaricom query response.' }
+                  }
+                }
+              }
+            }
+          },
+          502: mpesaError('Status query failed'),
+          504: mpesaError('FCL Orders app unreachable or timed out')
+        }
+      }
+    },
+    '/api/mpesa/payments': {
+      get: {
+        summary: 'Fetch M-Pesa payments',
+        operationId: 'mpesaPayments',
+        description: 'Lists M-Pesa C2B payments received on a till/paybill for an exact amount, from the FCL Orders mpesa_transactions log. Defaults to the current day (Africa/Nairobi).',
+        parameters: [
+          { name: 'businessShortCode', in: 'query', required: true, schema: { type: 'string' }, description: 'Till or paybill short code that received the payment.', example: '9051007' },
+          { name: 'amount', in: 'query', required: true, schema: { type: 'number' }, description: 'Exact transaction amount.', example: 1500 },
+          // Spec is rebuilt per docs request, so Swagger prefills the current Nairobi date.
+          { name: 'date', in: 'query', schema: { type: 'string', format: 'date', default: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10) }, description: 'Day received, YYYY-MM-DD or today. Defaults to today.' }
+        ],
+        responses: {
+          200: {
+            description: 'Matching payments',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    businessShortCode: { type: 'string' },
+                    amount: { type: 'number' },
+                    date: { type: 'string', format: 'date' },
+                    count: { type: 'integer' },
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          FirstName: { type: 'string', example: 'JOHN' },
+                          TransID: { type: 'string', example: 'TJU4XYZ123' },
+                          TransTime: { type: 'string', example: '20261030143012' },
+                          BusinessShortCode: { type: 'string', example: '9051007' },
+                          TransAmount: { type: 'string', example: '1500.00' },
+                          BillRefNumber: { type: 'string', nullable: true }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          400: mpesaError('Missing businessShortCode/amount or invalid date'),
+          504: mpesaError('FCL Orders app unreachable or timed out')
+        }
+      }
+    }
+  });
   const importOperation = document.paths['/api/imported-orders'].post;
   const exampleHeader = { company: 'FCL', externalDocumentNo: 'BOT-100045', sellToCustomerNo: '101', shipmentDate: '2026-06-22', salespersonCode: '019', shipToCode: '101' };
   const exampleLine = { lineNo: 10000, itemNo: 'J31010101', quantity: 12, unitOfMeasure: 'PC' };
@@ -1332,7 +1467,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
   });
   document.paths['/api/imported-orders/missing-on-test'].get.responses[200] = missingResponse;
   for (const [path, operations] of Object.entries({ ...document.paths })) {
-    if (!path.startsWith('/api/')) continue;
+    // STK push charges a real phone, so it has no test alias.
+    if (!path.startsWith('/api/') || path === '/api/mpesa/stk-push') continue;
     const testOperations = JSON.parse(JSON.stringify(operations));
     for (const [method, operation] of Object.entries(testOperations)) {
       if (!['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].includes(method)) continue;

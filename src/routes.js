@@ -3,6 +3,7 @@ const path = require('path');
 const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, resolveTable, bracket } = require('./db');
 const config = require('./config');
 const bcApi = require('./bcApi');
+const mpesa = require('./mpesa');
 const { addItemCategories } = require('./itemCategories');
 const { addItemUnits } = require('./itemUnits');
 
@@ -3595,6 +3596,71 @@ const importDocuments = documentType => asyncHandler(async (req, res) => {
     orders: results
   });
 });
+
+function positiveAmount(value, name) {
+  const amount = requiredNumber(value, name);
+  if (amount <= 0) {
+    const error = new Error(`${name} must be greater than 0.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return amount;
+}
+
+// M-Pesa requests are relayed through the FCL Orders app, the same flow as the shop cart.
+router.post('/mpesa/stk-push', asyncHandler(async (req, res) => {
+  if (req.testWritesOnly) {
+    const error = new Error('M-Pesa has no test destination; STK push is not available on test paths. Use /api/mpesa/stk-push.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const body = req.body || {};
+  const amount = positiveAmount(body.amount, 'amount');
+  if (!Number.isInteger(amount)) {
+    const error = new Error('amount must be a whole number of shillings for M-Pesa.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const result = await mpesa.initiateStkPush({
+    phone: mpesa.normalizePhone(requireString(body.phone, 'phone')),
+    amount,
+    tillNumber: requireString(body.tillNumber, 'tillNumber'),
+    storeName: requireString(body.storeName, 'storeName'),
+    storeNumber: optionalString(body.storeNumber),
+    transactionType: optionalString(body.transactionType),
+    orderId: optionalString(body.orderId)
+  });
+
+  res.status(202).json({
+    status: 'pending',
+    message: result.CustomerMessage || result.ResponseDescription,
+    amount,
+    checkoutRequestId: result.CheckoutRequestID,
+    merchantRequestId: result.MerchantRequestID,
+    orderId: result.Order_ID || null
+  });
+}));
+
+router.get('/mpesa/stk-push/:checkoutRequestId', asyncHandler(async (req, res) => {
+  res.json(await mpesa.queryStkPush(requireString(req.params.checkoutRequestId, 'checkoutRequestId')));
+}));
+
+router.get('/mpesa/payments', asyncHandler(async (req, res) => {
+  const businessShortCode = requireString(req.query.businessShortCode, 'businessShortCode');
+  const amount = positiveAmount(req.query.amount, 'amount');
+  const date = optionalString(req.query.date) ? invoiceDateFromQuery(req.query.date, 'date') : mpesa.todayInNairobi();
+  const data = await mpesa.fetchPayments({ businessShortCode, amount, date });
+
+  res.json({
+    businessShortCode,
+    amount,
+    date,
+    count: data.length,
+    data
+  });
+}));
 
 router.post('/imported-orders', importDocuments());
 router.post('/sales-orders', importDocuments('order'));

@@ -186,7 +186,35 @@ GET  /api/bc-api/imported-orders/:externalDocumentNo
 GET  /api/imported-orders/:externalDocumentNo
 GET  /api/imported-orders/:externalDocumentNo/status
 GET  /api/imported-orders/:externalDocumentNo/errors
+POST /api/mpesa/stk-push
+GET  /api/mpesa/stk-push/:checkoutRequestId
+GET  /api/mpesa/payments
 ```
+
+## M-Pesa
+
+M-Pesa requests are relayed through the FCL Orders portal (`FCL_ORDERS_BASE_URL`, default `https://nav.farmerschoice.co.ke`). STK push uses the same flow as the shop cart: portal `POST /api/v1/mpesa/stk-push` and `POST /api/v1/mpesa/stk-query/{checkoutId}`, which forward to the mpesa-express service. Payments are read from the portal's `POST /api/fetch/mpesa-transactions`.
+
+### STK push
+
+```http
+POST /api/mpesa/stk-push
+{ "phone": "0712345678", "amount": 100, "tillNumber": "9051007", "storeName": "FCL SHOP 021" }
+```
+
+`phone`, `amount` (whole shillings), `tillNumber` and `storeName` are required. `transactionType` defaults to `MPESA_STK_TRANSACTION_TYPE` (`CustomerBuyGoodsOnline`; use `CustomerPayBillOnline` for paybills). `storeNumber` and `orderId` are optional. A `202` response with `checkoutRequestId` only means Safaricom sent the prompt.
+
+Poll `GET /api/mpesa/stk-push/{checkoutRequestId}` every 2–3 seconds until `status` is `paid` or `failed`; it is `pending` while the customer has not responded. STK push is rejected on `/api/test` paths because M-Pesa has no test destination.
+
+### Payments
+
+```http
+GET /api/mpesa/payments?businessShortCode=9051007&amount=1500&date=2026-10-30
+```
+
+Returns C2B payments received on that till/paybill for the exact amount. `date` is optional (`YYYY-MM-DD` or `today`) and defaults to the current day in Nairobi.
+
+The portal serves only its leaf certificate, without the RapidSSL intermediate, which Node cannot verify (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`). The intermediate ships in `certs/RapidSSLTLSRSACAG1.pem` and is trusted for portal requests only, alongside Node's built-in roots (`FCL_ORDERS_CA_FILE`, comma-separated for several files). It expires in November 2027; serving the full chain on the portal removes the need for it.
 
 ## Status Checks
 
