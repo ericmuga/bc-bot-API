@@ -1995,6 +1995,7 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
   }
   const pool = await getPool();
   const salesPrice = await resolveTable('Sales Price', config.tables.salesPrice, companyCode);
+  const { customer } = await getTables(companyCode);
   const request = pool.request()
     .input('limit', sql.Int, pagination.limit)
     .input('offset', sql.Int, pagination.offset);
@@ -2007,6 +2008,12 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
       [Item No_] AS itemNo,
       [Sales Type] AS salesType,
       [Sales Code] AS salesCode,
+      -- Group prices carry the group in Sales Code; customer prices take the customer's group.
+      CASE [Sales Type]
+        WHEN 1 THEN [Sales Code]
+        WHEN 0 THEN COALESCE((SELECT c.${bracket('Customer Price Group')} FROM ${customer} c WHERE c.${bracket('No_')} = sp.[Sales Code]), '')
+        ELSE ''
+      END AS customerPriceGroup,
       [Currency Code] AS currencyCode,
       CONVERT(varchar(10), [Starting Date], 23) AS startingDate,
       CONVERT(varchar(10), [Ending Date], 23) AS endingDate,
@@ -2018,14 +2025,16 @@ router.get('/sales-prices', asyncHandler(async (req, res) => {
       CAST([Allow Invoice Disc_] AS bit) AS allowInvoiceDiscount,
       CAST([Allow Line Disc_] AS bit) AS allowLineDiscount,
       [VAT Bus_ Posting Gr_ (Price)] AS vatBusinessPostingGroup
-    FROM ${salesPrice}
+    FROM ${salesPrice} sp
     WHERE ${where}
     ORDER BY [Item No_], [Sales Type], [Sales Code], [Starting Date],
       [Currency Code], [Variant Code], [Unit of Measure Code], [Minimum Quantity]
     OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
   `);
   const { totalCount, syncToken } = result.recordsets[0][0];
-  res.json({ ...paginatedResponse(companyCode, result.recordsets[1], pagination, totalCount), syncToken });
+  // customerPriceGroup matches the customers API, which reports an empty group as "BLANK".
+  const data = result.recordsets[1].map((row) => ({ ...row, customerPriceGroup: blankAsText(row.customerPriceGroup) }));
+  res.json({ ...paginatedResponse(companyCode, data, pagination, totalCount), syncToken });
 }));
 
 router.get('/inventory-posting-groups', asyncHandler(async (req, res) => {

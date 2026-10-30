@@ -122,7 +122,7 @@ function createSpec(baseUrl = 'http://localhost:3500') {
           }
         }
       },
-      SalesPrice: {"type": "object", "properties": {"itemNo": {"type": "string"}, "salesType": {"type": "integer"}, "salesCode": {"type": "string"}, "currencyCode": {"type": "string"}, "startingDate": {"type": "string"}, "endingDate": {"type": "string"}, "unitPrice": {"type": "number"}, "minimumQuantity": {"type": "number"}, "unitOfMeasureCode": {"type": "string"}, "variantCode": {"type": "string"}, "priceIncludesVAT": {"type": "boolean"}, "allowInvoiceDiscount": {"type": "boolean"}, "allowLineDiscount": {"type": "boolean"}, "vatBusinessPostingGroup": {"type": "string"}}},
+      SalesPrice: {"type": "object", "properties": {"itemNo": {"type": "string"}, "salesType": {"type": "integer"}, "salesCode": {"type": "string"}, "customerPriceGroup": {"type": "string", "description": "Sales Code for group prices (sales type 1), the customer's group for customer prices (type 0), otherwise BLANK."}, "currencyCode": {"type": "string"}, "startingDate": {"type": "string"}, "endingDate": {"type": "string"}, "unitPrice": {"type": "number"}, "minimumQuantity": {"type": "number"}, "unitOfMeasureCode": {"type": "string"}, "variantCode": {"type": "string"}, "priceIncludesVAT": {"type": "boolean"}, "allowInvoiceDiscount": {"type": "boolean"}, "allowLineDiscount": {"type": "boolean"}, "vatBusinessPostingGroup": {"type": "string"}}},
       Item: {
         type: 'object',
         properties: {
