@@ -175,6 +175,7 @@ GET  /api/sales-prices
 GET  /api/items
 GET  /api/salespeople
 GET  /api/historical-sales-invoice-lines
+GET  /api/sales-credit-memos
 GET  /api/imported-orders
 POST /api/imported-orders
 POST /api/sales-orders

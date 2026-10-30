@@ -2855,6 +2855,164 @@ router.get('/invoices', asyncHandler(async (req, res) => {
 
   res.json({ ...paginatedResponse(companyCode, invoices, pagination, totalCount), postingDateFrom, postingDateTo });
 }));
+
+// BC "Applies-to Doc. Type" option values on posted credit memos.
+const APPLIES_TO_DOC_TYPES = ['', 'Payment', 'Invoice', 'Credit Memo', 'Finance Charge Memo', 'Reminder', 'Refund'];
+
+// Posted sales credit memos with their item lines, one posting day (today) by default.
+router.get('/sales-credit-memos', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  getCompanyConfig(companyCode);
+  const pagination = paginationFromQuery(req.query);
+  const pool = await getPool();
+  const request = pool.request()
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset);
+  const filters = [];
+
+  const creditMemoNos = optionalStringList(req.query.creditMemoNo, req.query.creditMemoNos);
+  if (creditMemoNos.length) {
+    const names = creditMemoNos.map((value, index) => {
+      request.input(`creditMemoNo${index}`, sql.NVarChar, value);
+      return `@creditMemoNo${index}`;
+    });
+    filters.push(`h.${bracket('No_')} IN (${names.join(', ')})`);
+  }
+  addAliasedFilter(filters, request, req.query, 'externalDocumentNo', sql.NVarChar, `h.${bracket('External Document No_')}`);
+  addAliasedFilter(filters, request, req.query, 'appliesToDocNo', sql.NVarChar, `h.${bracket('Applies-to Doc_ No_')}`);
+  addAliasedFilter(filters, request, req.query, 'customerNo', sql.NVarChar, `h.${bracket('Sell-to Customer No_')}`);
+  addAliasedFilter(filters, request, req.query, 'salespersonCode', sql.NVarChar, `h.${bracket('Salesperson Code')}`);
+  addAliasedFilter(filters, request, req.query, 'shipToCode', sql.NVarChar, `h.${bracket('Ship-to Code')}`);
+
+  const hasRange = optionalString(req.query.postingDateFrom) || optionalString(req.query.postingDateTo);
+  if (optionalString(req.query.postingDate) && hasRange) {
+    const error = new Error('Use either postingDate or postingDateFrom/postingDateTo, not both.');
+    error.statusCode = 400;
+    throw error;
+  }
+  // A document lookup searches all dates; otherwise the window defaults to today.
+  const isDocumentLookup = creditMemoNos.length > 0
+    || optionalString(req.query.externalDocumentNo)
+    || optionalString(req.query.appliesToDocNo);
+  let postingDateFrom = null;
+  let postingDateTo = null;
+  if (hasRange) {
+    postingDateFrom = invoiceDateFromQuery(req.query.postingDateFrom, 'postingDateFrom');
+    postingDateTo = invoiceDateFromQuery(req.query.postingDateTo, 'postingDateTo');
+    const days = (new Date(postingDateTo) - new Date(postingDateFrom)) / 86400000 + 1;
+    if (days < 1 || days > INVOICE_MAX_DAYS) {
+      const error = new Error(`postingDateFrom must not be after postingDateTo, and the range must not exceed ${INVOICE_MAX_DAYS} days.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  } else if (optionalString(req.query.postingDate) || !isDocumentLookup) {
+    postingDateFrom = invoiceDateFromQuery(req.query.postingDate || 'today', 'postingDate');
+    postingDateTo = postingDateFrom;
+  }
+  if (postingDateFrom) {
+    request.input('postingDateFrom', sql.Date, postingDateFrom).input('postingDateTo', sql.Date, postingDateTo);
+    filters.push(`h.${bracket('Posting Date')} BETWEEN @postingDateFrom AND @postingDateTo`);
+  }
+
+  const [salesCrMemoHeader, salesCrMemoLine] = await Promise.all([
+    resolveTable('Sales Cr_Memo Header', config.tables.salesCrMemoHeader, companyCode),
+    resolveTable('Sales Cr_Memo Line', config.tables.salesCrMemoLine, companyCode)
+  ]);
+  // Page by credit memo, then attach item lines (Type 2) to the credit memos on the page.
+  const result = await request.query(`
+    WITH PagedCreditMemos AS (
+      SELECT
+        h.${bracket('No_')} AS creditMemoNo,
+        CONVERT(varchar(10), h.${bracket('Posting Date')}, 23) AS postingDate,
+        CONVERT(varchar(10), h.${bracket('Document Date')}, 23) AS documentDate,
+        h.${bracket('External Document No_')} AS externalDocumentNo,
+        h.${bracket('Applies-to Doc_ Type')} AS appliesToDocType,
+        h.${bracket('Applies-to Doc_ No_')} AS appliesToDocNo,
+        h.${bracket('Return Order No_')} AS returnOrderNo,
+        h.${bracket('Pre-Assigned No_')} AS preAssignedNo,
+        h.${bracket('Reason Code')} AS reasonCode,
+        h.${bracket('Salesperson Code')} AS salespersonCode,
+        h.${bracket('Sell-to Customer No_')} AS customerNo,
+        h.${bracket('Sell-to Customer Name')} AS customerName,
+        h.${bracket('Ship-to Code')} AS shipToCode,
+        h.${bracket('Ship-to Name')} AS shipToName,
+        h.${bracket('Location Code')} AS locationCode,
+        -- Totals cover every line (items, G/L, resources), not only the item lines returned.
+        (SELECT SUM(t.${bracket('Amount')}) FROM ${salesCrMemoLine} t WHERE t.${bracket('Document No_')} = h.${bracket('No_')}) AS totalAmount,
+        (SELECT SUM(t.${bracket('Amount Including VAT')}) FROM ${salesCrMemoLine} t WHERE t.${bracket('Document No_')} = h.${bracket('No_')}) AS totalAmountIncludingVat,
+        COUNT(*) OVER() AS totalCount
+      FROM ${salesCrMemoHeader} h
+      WHERE ${filters.length ? filters.join(' AND ') : '1 = 1'}
+      ORDER BY h.${bracket('Posting Date')}, h.${bracket('No_')}
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    )
+    SELECT
+      p.*,
+      l.${bracket('Line No_')} AS ${bracket('lineNo')},
+      l.${bracket('No_')} AS itemNo,
+      l.${bracket('Description')} AS description,
+      l.${bracket('Quantity')} AS quantity,
+      l.${bracket('Unit of Measure Code')} AS unitOfMeasureCode,
+      l.${bracket('Unit Price')} AS unitPrice,
+      l.${bracket('Amount')} AS amount,
+      l.${bracket('Amount Including VAT')} AS amountIncludingVat,
+      l.${bracket('Return Reason Code')} AS returnReasonCode,
+      l.${bracket('Location Code')} AS lineLocationCode
+    FROM PagedCreditMemos p
+    LEFT JOIN ${salesCrMemoLine} l
+      ON l.${bracket('Document No_')} = p.creditMemoNo
+      AND l.${bracket('Type')} = 2
+    ORDER BY p.postingDate, p.creditMemoNo, l.${bracket('Line No_')}
+  `);
+
+  const creditMemos = [];
+  const byCreditMemoNo = new Map();
+  let totalCount = 0;
+  for (const row of result.recordset) {
+    totalCount = Math.max(totalCount, Number(row.totalCount) || 0);
+    let creditMemo = byCreditMemoNo.get(row.creditMemoNo);
+    if (!creditMemo) {
+      creditMemo = {
+        creditMemoNo: row.creditMemoNo,
+        postingDate: row.postingDate || '',
+        documentDate: row.documentDate || '',
+        externalDocumentNo: row.externalDocumentNo || '',
+        appliesToDocType: APPLIES_TO_DOC_TYPES[Number(row.appliesToDocType)] || '',
+        appliesToDocNo: row.appliesToDocNo || '',
+        returnOrderNo: row.returnOrderNo || '',
+        preAssignedNo: row.preAssignedNo || '',
+        reasonCode: row.reasonCode || '',
+        salespersonCode: row.salespersonCode || '',
+        customerNo: row.customerNo || '',
+        customerName: row.customerName || '',
+        shipToCode: row.shipToCode || '',
+        shipToName: row.shipToName || '',
+        locationCode: row.locationCode || '',
+        amount: Number(row.totalAmount) || 0,
+        amountIncludingVat: Number(row.totalAmountIncludingVat) || 0,
+        lines: []
+      };
+      byCreditMemoNo.set(row.creditMemoNo, creditMemo);
+      creditMemos.push(creditMemo);
+    }
+    if (row.lineNo !== null && row.lineNo !== undefined) {
+      creditMemo.lines.push({
+        lineNo: row.lineNo,
+        itemNo: row.itemNo || '',
+        description: row.description || '',
+        quantity: Number(row.quantity) || 0,
+        unitOfMeasureCode: row.unitOfMeasureCode || '',
+        unitPrice: Number(row.unitPrice) || 0,
+        amount: Number(row.amount) || 0,
+        amountIncludingVat: Number(row.amountIncludingVat) || 0,
+        returnReasonCode: row.returnReasonCode || '',
+        locationCode: row.lineLocationCode || ''
+      });
+    }
+  }
+
+  res.json({ ...paginatedResponse(companyCode, creditMemos, pagination, totalCount), postingDateFrom, postingDateTo });
+}));
 router.get('/imported-orders', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);

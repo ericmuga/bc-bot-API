@@ -1303,6 +1303,68 @@ function createSpec(baseUrl = 'http://localhost:3500') {
       ], responses: response
     } };
   }
+  // Credit memos share the invoice query parameters and paging envelope; only the document shape differs.
+  const creditMemoOperation = JSON.parse(JSON.stringify(document.paths['/api/invoices'].get));
+  creditMemoOperation.summary = 'List posted sales credit memos with item lines';
+  creditMemoOperation.description = "Reads Sales Cr.Memo Header with its item lines (Sales Cr.Memo Line, Type 2). Results are portioned by posting day: with no date filter only today's credit memos are returned. Sync one day at a time, or use postingDateFrom/postingDateTo for up to 31 days, and follow nextPage until it is null. creditMemoNo, externalDocumentNo and appliesToDocNo lookups search all dates unless a date filter is supplied. Header amount and amountIncludingVat total every line of the credit memo, including non-item lines that are not listed. Paging counts credit memos, not lines.";
+  creditMemoOperation.parameters = creditMemoOperation.parameters.flatMap((parameter) => {
+    if (parameter.name === 'invoiceNo') {
+      return [
+        { name: 'creditMemoNo', in: 'query', schema: { type: 'string' }, description: 'Posted credit memo numbers as repeated values, comma-separated values, or JSON array. creditMemoNos is an alias.' },
+        { name: 'appliesToDocNo', in: 'query', schema: { type: 'string' }, example: 'IN01082903', description: 'Posted invoice the credit memo is applied to.' }
+      ];
+    }
+    if (parameter.name === 'externalDocumentNo') {
+      return [{ ...parameter, example: 'BOT-CN-100045' }];
+    }
+    if (parameter.name === 'limit' || parameter.name === 'offset') {
+      return [{ ...parameter, description: parameter.description.replace('Invoices', 'Credit memos').replace('invoice', 'credit memo') }];
+    }
+    return [parameter];
+  });
+  const creditMemoResponse = creditMemoOperation.responses[200];
+  creditMemoResponse.description = 'Posted sales credit memos for the requested posting dates, oldest first, each with its item lines.';
+  creditMemoResponse.content['application/json'].schema.properties.data.items = {
+    type: 'object',
+    properties: {
+      creditMemoNo: { type: 'string', example: 'CR0087618' },
+      postingDate: { type: 'string', format: 'date', example: '2026-10-30' },
+      documentDate: { type: 'string', format: 'date', example: '2026-10-30' },
+      externalDocumentNo: { type: 'string', example: 'BOT-CN-100045' },
+      appliesToDocType: { type: 'string', example: 'Invoice', description: 'Blank, Payment, Invoice, Credit Memo, Finance Charge Memo, Reminder or Refund.' },
+      appliesToDocNo: { type: 'string', example: 'IN01082903' },
+      returnOrderNo: { type: 'string', example: '' },
+      preAssignedNo: { type: 'string', example: 'SCM-100045', description: 'Unposted credit memo number before posting.' },
+      reasonCode: { type: 'string', example: '' },
+      salespersonCode: { type: 'string', example: '019' },
+      customerNo: { type: 'string', example: '101' },
+      customerName: { type: 'string', example: 'BRAEBURN SCHOOL' },
+      shipToCode: { type: 'string', example: '101' },
+      shipToName: { type: 'string', example: 'BRAEBURN SCHOOL' },
+      locationCode: { type: 'string', example: '3535' },
+      amount: { type: 'number', example: 1200, description: 'Total excluding VAT across all lines.' },
+      amountIncludingVat: { type: 'number', example: 1392, description: 'Total including VAT across all lines.' },
+      lines: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            lineNo: { type: 'integer', example: 10000 },
+            itemNo: { type: 'string', example: 'J31010101' },
+            description: { type: 'string', example: 'Pork Chipolatas 200gms' },
+            quantity: { type: 'number', example: 12 },
+            unitOfMeasureCode: { type: 'string', example: 'PC' },
+            unitPrice: { type: 'number', example: 100 },
+            amount: { type: 'number', example: 1200 },
+            amountIncludingVat: { type: 'number', example: 1392 },
+            returnReasonCode: { type: 'string', example: 'DAMAGED' },
+            locationCode: { type: 'string', example: '3535' }
+          }
+        }
+      }
+    }
+  };
+  document.paths['/api/sales-credit-memos'] = { get: creditMemoOperation };
   const mpesaError = (description) => ({
     description,
     content: { 'application/json': { schema: { type: 'object', properties: { error: { type: 'string' }, details: { type: 'object', nullable: true } } } } }

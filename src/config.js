@@ -194,7 +194,8 @@ const config = {
     salesInvoiceHeader: process.env.SQL_TABLE_SALES_INVOICE_HEADER || '',
     salesPrice: process.env.SQL_TABLE_SALES_PRICE || '',
     salesInvoiceLine: process.env.SQL_TABLE_SALES_INVOICE_LINE || '',
-    salesCrMemoHeader: process.env.SQL_TABLE_SALES_CR_MEMO_HEADER || ''
+    salesCrMemoHeader: process.env.SQL_TABLE_SALES_CR_MEMO_HEADER || '',
+    salesCrMemoLine: process.env.SQL_TABLE_SALES_CR_MEMO_LINE || ''
   },
   bcApi: {
     baseUrl: (process.env.BC_API_BASE_URL || '').replace(/\/$/, ''),
