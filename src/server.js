@@ -41,7 +41,38 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
   swaggerUi.setup(createSpec(getBaseUrl(req)), {
     explorer: true,
     swaggerOptions: {
-      persistAuthorization: true
+      persistAuthorization: true,
+      filter: true,
+      // These functions are serialized and run in the browser, so they cannot use closures.
+      plugins: [
+        function DownloadUrl(system) {
+          return SwaggerUIBundle.plugins.DownloadUrl(system);
+        },
+        function SearchOperations() {
+          return {
+            fn: {
+              // The default filter only matches tag names; match paths, summaries and operationIds too.
+              opsFilter(taggedOps, phrase) {
+                const query = String(phrase || '').trim().toLowerCase();
+                if (!query) {
+                  return taggedOps;
+                }
+
+                return taggedOps
+                  .map((tag, tagName) => (tagName.toLowerCase().includes(query)
+                    ? tag
+                    : tag.set('operations', tag.get('operations').filter((op) => [
+                      op.get('path'),
+                      op.get('method'),
+                      op.getIn(['operation', 'summary']),
+                      op.getIn(['operation', 'operationId'])
+                    ].some((value) => String(value || '').toLowerCase().includes(query))))))
+                  .filter((tag) => tag.get('operations').size > 0);
+              }
+            }
+          };
+        }
+      ]
     }
   })(req, res, next);
 });
