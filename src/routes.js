@@ -2713,6 +2713,147 @@ async function listHistoricalSalesInvoiceLines(req, res) {
 }
 
 router.get('/historical-sales-invoice-lines', asyncHandler(listHistoricalSalesInvoiceLines));
+
+const INVOICE_MAX_DAYS = 31;
+
+function invoiceDateFromQuery(value, name) {
+  const text = optionalString(value);
+  const date = text.toLowerCase() === 'today' ? new Date().toLocaleDateString('en-CA') : text;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    const error = new Error(`${name} must be today or a valid date in YYYY-MM-DD format.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return date;
+}
+
+// Posted sales invoices with their item lines, one posting day (today) by default.
+router.get('/invoices', asyncHandler(async (req, res) => {
+  const companyCode = companyFromRequest(req);
+  getCompanyConfig(companyCode);
+  const pagination = paginationFromQuery(req.query);
+  const pool = await getPool();
+  const request = pool.request()
+    .input('limit', sql.Int, pagination.limit)
+    .input('offset', sql.Int, pagination.offset);
+  const filters = [];
+
+  const invoiceNos = optionalStringList(req.query.invoiceNo, req.query.invoiceNos);
+  if (invoiceNos.length) {
+    const names = invoiceNos.map((value, index) => {
+      request.input(`invoiceNo${index}`, sql.NVarChar, value);
+      return `@invoiceNo${index}`;
+    });
+    filters.push(`h.${bracket('No_')} IN (${names.join(', ')})`);
+  }
+  addAliasedFilter(filters, request, req.query, 'externalDocumentNo', sql.NVarChar, `h.${bracket('External Document No_')}`);
+  addAliasedFilter(filters, request, req.query, 'customerNo', sql.NVarChar, `h.${bracket('Sell-to Customer No_')}`);
+  addAliasedFilter(filters, request, req.query, 'salespersonCode', sql.NVarChar, `h.${bracket('Salesperson Code')}`);
+  addAliasedFilter(filters, request, req.query, 'shipToCode', sql.NVarChar, `h.${bracket('Ship-to Code')}`);
+
+  const hasRange = optionalString(req.query.postingDateFrom) || optionalString(req.query.postingDateTo);
+  if (optionalString(req.query.postingDate) && hasRange) {
+    const error = new Error('Use either postingDate or postingDateFrom/postingDateTo, not both.');
+    error.statusCode = 400;
+    throw error;
+  }
+  // A document lookup searches all dates; otherwise the window defaults to today.
+  const isDocumentLookup = invoiceNos.length > 0 || optionalString(req.query.externalDocumentNo);
+  let postingDateFrom = null;
+  let postingDateTo = null;
+  if (hasRange) {
+    postingDateFrom = invoiceDateFromQuery(req.query.postingDateFrom, 'postingDateFrom');
+    postingDateTo = invoiceDateFromQuery(req.query.postingDateTo, 'postingDateTo');
+    const days = (new Date(postingDateTo) - new Date(postingDateFrom)) / 86400000 + 1;
+    if (days < 1 || days > INVOICE_MAX_DAYS) {
+      const error = new Error(`postingDateFrom must not be after postingDateTo, and the range must not exceed ${INVOICE_MAX_DAYS} days.`);
+      error.statusCode = 400;
+      throw error;
+    }
+  } else if (optionalString(req.query.postingDate) || !isDocumentLookup) {
+    postingDateFrom = invoiceDateFromQuery(req.query.postingDate || 'today', 'postingDate');
+    postingDateTo = postingDateFrom;
+  }
+  if (postingDateFrom) {
+    request.input('postingDateFrom', sql.Date, postingDateFrom).input('postingDateTo', sql.Date, postingDateTo);
+    filters.push(`h.${bracket('Posting Date')} BETWEEN @postingDateFrom AND @postingDateTo`);
+  }
+
+  const [salesInvoiceHeader, salesInvoiceLine] = await Promise.all([
+    resolveTable('Sales Invoice Header', config.tables.salesInvoiceHeader, companyCode),
+    resolveTable('Sales Invoice Line', config.tables.salesInvoiceLine, companyCode)
+  ]);
+  // Page by invoice, then attach item lines (Type 2) to the invoices on the page.
+  const result = await request.query(`
+    WITH PagedInvoices AS (
+      SELECT
+        h.${bracket('No_')} AS invoiceNo,
+        CONVERT(varchar(10), h.${bracket('Posting Date')}, 23) AS postingDate,
+        CONVERT(varchar(10), h.${bracket('Shipment Date')}, 23) AS shipmentDate,
+        h.${bracket('Quote No_')} AS orderNo,
+        h.${bracket('External Document No_')} AS externalDocumentNo,
+        h.${bracket('Salesperson Code')} AS salespersonCode,
+        h.${bracket('Sell-to Customer No_')} AS customerNo,
+        h.${bracket('Sell-to Customer Name')} AS customerName,
+        h.${bracket('Ship-to Code')} AS shipToCode,
+        h.${bracket('Ship-to Name')} AS shipToName,
+        COUNT(*) OVER() AS totalCount
+      FROM ${salesInvoiceHeader} h
+      WHERE ${filters.length ? filters.join(' AND ') : '1 = 1'}
+      ORDER BY h.${bracket('Posting Date')}, h.${bracket('No_')}
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    )
+    SELECT
+      p.*,
+      l.${bracket('Line No_')} AS ${bracket('lineNo')},
+      l.${bracket('No_')} AS itemNo,
+      l.${bracket('Description')} AS description,
+      l.${bracket('Quantity')} AS quantity,
+      l.${bracket('Unit of Measure Code')} AS unitOfMeasureCode
+    FROM PagedInvoices p
+    LEFT JOIN ${salesInvoiceLine} l
+      ON l.${bracket('Document No_')} = p.invoiceNo
+      AND l.${bracket('Type')} = 2
+    ORDER BY p.postingDate, p.invoiceNo, l.${bracket('Line No_')}
+  `);
+
+  const invoices = [];
+  const byInvoiceNo = new Map();
+  let totalCount = 0;
+  for (const row of result.recordset) {
+    totalCount = Math.max(totalCount, Number(row.totalCount) || 0);
+    let invoice = byInvoiceNo.get(row.invoiceNo);
+    if (!invoice) {
+      invoice = {
+        invoiceNo: row.invoiceNo,
+        postingDate: row.postingDate || '',
+        shipmentDate: row.shipmentDate || '',
+        orderNo: row.orderNo || '',
+        externalDocumentNo: row.externalDocumentNo || '',
+        salespersonCode: row.salespersonCode || '',
+        customerNo: row.customerNo || '',
+        customerName: row.customerName || '',
+        shipToCode: row.shipToCode || '',
+        shipToName: row.shipToName || '',
+        lines: []
+      };
+      byInvoiceNo.set(row.invoiceNo, invoice);
+      invoices.push(invoice);
+    }
+    if (row.lineNo !== null && row.lineNo !== undefined) {
+      invoice.lines.push({
+        lineNo: row.lineNo,
+        itemNo: row.itemNo || '',
+        description: row.description || '',
+        quantity: Number(row.quantity) || 0,
+        unitOfMeasureCode: row.unitOfMeasureCode || ''
+      });
+    }
+  }
+
+  res.json({ ...paginatedResponse(companyCode, invoices, pagination, totalCount), postingDateFrom, postingDateTo });
+}));
 router.get('/imported-orders', asyncHandler(async (req, res) => {
   const pool = await getPool();
   const companyCode = companyFromRequest(req);

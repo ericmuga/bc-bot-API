@@ -686,6 +686,85 @@ function createSpec(baseUrl = 'http://localhost:3500') {
         }
       }
     },
+    '/api/invoices': {
+      get: {
+        summary: 'List posted sales invoices with item lines',
+        description: "Reads Sales Invoice Header with its item lines (Sales Invoice Line, Type 2). Results are portioned by posting day: with no date filter only today's invoices are returned. Sync one day at a time, or use postingDateFrom/postingDateTo for up to 31 days, and follow nextPage until it is null. invoiceNo and externalDocumentNo lookups search all dates unless a date filter is supplied. Paging counts invoices, not lines.",
+        parameters: [
+          { name: 'company', in: 'query', schema: { type: 'string', enum: ['CM', 'FCL', 'FLM', 'RMK'], default: 'FCL' } },
+          { name: 'postingDate', in: 'query', schema: { type: 'string', default: 'today' }, example: 'today', description: 'Posting day: today or YYYY-MM-DD. Defaults to today. Mutually exclusive with postingDateFrom/postingDateTo.' },
+          { name: 'postingDateFrom', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Range start, YYYY-MM-DD or today. Requires postingDateTo; the range may cover at most 31 days.' },
+          { name: 'postingDateTo', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Range end, YYYY-MM-DD or today. Requires postingDateFrom.' },
+          { name: 'invoiceNo', in: 'query', schema: { type: 'string' }, description: 'Posted invoice numbers as repeated values, comma-separated values, or JSON array. invoiceNos is an alias.' },
+          { name: 'externalDocumentNo', in: 'query', schema: { type: 'string' }, example: 'BOT-100045' },
+          { name: 'customerNo', in: 'query', schema: { type: 'string' }, description: 'Sell-to customer number.' },
+          { name: 'salespersonCode', in: 'query', schema: { type: 'string' } },
+          { name: 'shipToCode', in: 'query', schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 }, description: 'Invoices per page.' },
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: '1-based page number. Ignored when offset is supplied.' },
+          { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 }, description: 'Zero-based invoice offset. Overrides page when supplied.' }
+        ],
+        responses: {
+          200: {
+            description: 'Posted sales invoices for the requested posting dates, oldest first, each with its item lines.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    company: { type: 'string', example: 'FCL' },
+                    count: { type: 'integer', example: 25 },
+                    totalCount: { type: 'integer', example: 250 },
+                    page: { type: 'integer', example: 1 },
+                    limit: { type: 'integer', example: 100 },
+                    offset: { type: 'integer', example: 0 },
+                    totalPages: { type: 'integer', example: 3 },
+                    nextPage: { type: 'integer', nullable: true, example: 2, description: 'Next page number, or null when there are no more results. Pass as page and omit offset.' },
+                    nextOffset: { type: 'integer', nullable: true, example: 100, description: 'Next offset, or null when there are no more results. Use for offset-based navigation.' },
+                    hasNext: { type: 'boolean', example: true },
+                    hasPrevious: { type: 'boolean', example: false },
+                    postingDateFrom: { type: 'string', nullable: true, example: '2026-10-30', description: 'Posting date window applied; null for an all-dates document lookup.' },
+                    postingDateTo: { type: 'string', nullable: true, example: '2026-10-30' },
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          invoiceNo: { type: 'string', example: 'PSI-100045' },
+                          postingDate: { type: 'string', format: 'date', example: '2026-10-30' },
+                          shipmentDate: { type: 'string', format: 'date', example: '2026-10-30' },
+                          orderNo: { type: 'string', example: 'SO-100045', description: 'Quote No_ from Sales Invoice Header.' },
+                          externalDocumentNo: { type: 'string', example: 'BOT-100045' },
+                          salespersonCode: { type: 'string', example: '019' },
+                          customerNo: { type: 'string', example: '101' },
+                          customerName: { type: 'string', example: 'BRAEBURN SCHOOL' },
+                          shipToCode: { type: 'string', example: '101' },
+                          shipToName: { type: 'string', example: 'BRAEBURN SCHOOL' },
+                          lines: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                lineNo: { type: 'integer', example: 10000 },
+                                itemNo: { type: 'string', example: 'J31010101' },
+                                description: { type: 'string', example: 'Pork Chipolatas 200gms' },
+                                quantity: { type: 'number', example: 12 },
+                                unitOfMeasureCode: { type: 'string', example: 'PC' }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: 'Invalid date, both postingDate and a range supplied, or a range longer than 31 days.' }
+        }
+      }
+    },
     '/api/salespeople': {
       get: {
         summary: 'List salespeople',
