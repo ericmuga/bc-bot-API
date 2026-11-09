@@ -5,6 +5,7 @@ const routes = require('./routes');
 const config = require('./config');
 const { requireApiKey, errorHandler } = require('./middleware');
 const { createSpec, asYaml } = require('./openapi');
+const { runInTestMode } = require('./db');
 
 const app = express();
 
@@ -79,7 +80,7 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
 
 app.use('/test', requireApiKey, (req, res, next) => {
   req.testWritesOnly = true;
-  routes(req, res, next);
+  runInTestMode(() => routes(req, res, next));
 });
 app.use('/api', requireApiKey, routes);
 app.use(errorHandler);

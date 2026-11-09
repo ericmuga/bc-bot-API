@@ -1,5 +1,5 @@
 const config = require('./config');
-const { getCompanyConfig } = require('./db');
+const { getCompanyConfig, isTestMode } = require('./db');
 
 function ensureFetch() {
   if (typeof fetch !== 'function') {
@@ -23,8 +23,17 @@ function ensureBcApiConfigured(target) {
   }
 }
 
+// In test mode, calls without an explicit target use the BC_API_TEST target, never live.
 function bcApiTarget(target) {
-  return target || config.bcApi;
+  if (target) return target;
+  if (!isTestMode()) return config.bcApi;
+  const testTarget = config.bcApiMirrors.find((entry) => entry.name === 'test');
+  if (!testTarget || !testTarget.baseUrl) {
+    const error = new Error('BC API test target is not configured. Set BC_API_TEST_BASE_URL and BC_API_TEST_COMPANY_IDS.');
+    error.statusCode = 503;
+    throw error;
+  }
+  return testTarget;
 }
 
 function getCompanyId(companyCode, target) {

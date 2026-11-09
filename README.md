@@ -833,13 +833,13 @@ Customers return `customerPriceGroup` and support an exact filter of the same na
 
 ## Test-only writes
 
-Use `/api/test` as the API base path, or `/test` as a shorter alias. All existing routes are available; writes go only to test, with no primary write or mirror fan-out. Existing `/api` routes retain their behavior and the same API key is required.
+Use `/api/test` as the API base path, or `/test` as a shorter alias. All existing routes are available; reads and writes go only to the test destination, with no primary write or mirror fan-out. Existing `/api` routes retain their behavior and the same API key is required.
 
 This covers orders, invoices, return orders, credit notes, and SQL batches. Query company takes precedence over body company; batches otherwise use each order's company, then envelope/default company. Request target values cannot override test mode; write responses identify target `test`.
 
-Reads, including POST status/batch, keep their usual sources. Push-missing-to-test reads primary staging and inserts only into test. SQL test imports perform duplicate checks within test; BC API test imports check only test staging API pages.
+Reads, including POST status/batch, use the SQL test target (`SQL_WRITE_TEST_*`), and BC API page calls use `BC_API_TEST_*`; nothing on a test path falls back to live. Exceptions: item attributes and categories come from the shared attributes server, M-Pesa payment lookups go to the FCL Orders portal, and missing-on-test and push-missing-to-test read live staging to compare it with test (push-missing-to-test inserts only into test). SQL test imports perform duplicate checks within test; BC API test imports check only test staging API pages.
 
-Configure `SQL_WRITE_TEST_SERVER`, `SQL_WRITE_TEST_DATABASE`, `SQL_WRITE_TEST_USER`, `SQL_WRITE_TEST_PASSWORD`, or `BC_API_TEST_BASE_URL` with its test authentication/company settings. Missing or primary-equivalent targets reject writes with 503, with no live fallback. Different aliases pointing to the same server cannot be detected automatically.
+Configure `SQL_WRITE_TEST_SERVER`, `SQL_WRITE_TEST_DATABASE`, `SQL_WRITE_TEST_USER`, `SQL_WRITE_TEST_PASSWORD`, or `BC_API_TEST_BASE_URL` with its test authentication/company settings. A missing test target rejects every test-path request with 503, and a primary-equivalent target rejects writes with 503, with no live fallback. Different aliases pointing to the same server cannot be detected automatically.
 
 ## Swagger behind the public HTTPS proxy
 

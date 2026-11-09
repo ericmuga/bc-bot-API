@@ -1534,8 +1534,8 @@ function createSpec(baseUrl = 'http://localhost:3500') {
     const testOperations = JSON.parse(JSON.stringify(operations));
     for (const [method, operation] of Object.entries(testOperations)) {
       if (!['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].includes(method)) continue;
-      operation.summary = `[Test writes] ${operation.summary || ''}`;
-      operation.description = `${operation.description || ''} On this path, writes go only to the configured test destination, with no primary write or mirroring. Reads keep their usual source. Company flags apply as usual. Missing or primary-equivalent test configuration rejects writes with 503.`.trim();
+      operation.summary = `[Test] ${operation.summary || ''}`;
+      operation.description = `${operation.description || ''} On this path, reads and writes use only the configured test destination (SQL_WRITE_TEST_*, or BC_API_TEST_* for BC API pages), with no primary write or mirroring. Missing-on-test and push-missing-to-test still read live staging to compare. Company flags apply as usual. Missing test configuration rejects the request with 503, and primary-equivalent configuration rejects writes with 503.`.trim();
       if (operation.operationId) operation.operationId += 'Test';
     }
     document.paths[path.replace('/api/', '/api/test/')] = testOperations;

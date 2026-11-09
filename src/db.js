@@ -1,21 +1,44 @@
+const { AsyncLocalStorage } = require('async_hooks');
 const sql = require('mssql');
 const config = require('./config');
 
 const BASE_APP_ID = '437dbf0e-84ff-417a-965d-ed2bb9650972';
 const poolPromises = new Map();
 const tableCache = new Map();
+const testModeContext = new AsyncLocalStorage();
 
-function connectionConfigForRole(role = 'read') {
-  if (role === 'itemAttributes') return config.sqlItemAttributes;
-  if (role === 'write') {
-    return config.sqlWrite;
-  }
+// Requests under /test run in test mode: their default read and write connections go to the
+// SQL_WRITE_TEST_* target and never fall back to the live database.
+function runInTestMode(callback) {
+  return testModeContext.run(true, callback);
+}
 
-  if (String(role).startsWith('write:')) {
-    const mirrorName = String(role).slice('write:'.length);
+function isTestMode() {
+  return testModeContext.getStore() === true;
+}
+
+// Roles: 'read', 'write' (follow test mode), 'write:primary' (always the live write target,
+// for live-vs-test comparisons), 'write:<mirror>' and 'itemAttributes' (fixed targets).
+function poolKeyForRole(role = 'read') {
+  if (role === 'itemAttributes') return role;
+  if (role === 'write:primary') return 'write';
+  if (String(role).startsWith('write:')) return role;
+  if (isTestMode()) return 'write:test';
+  return role === 'write' ? 'write' : 'read';
+}
+
+function connectionConfigForPoolKey(key) {
+  if (key === 'itemAttributes') return config.sqlItemAttributes;
+  if (key === 'write') return config.sqlWrite;
+  if (key.startsWith('write:')) {
+    const mirrorName = key.slice('write:'.length);
     const mirror = config.sqlWriteMirrors.find((target) => target.name === mirrorName);
-    if (!mirror) {
-      throw new Error(`SQL write mirror '${mirrorName}' is not configured.`);
+    if (!mirror || !mirror.server || !mirror.database) {
+      const error = mirrorName === 'test'
+        ? new Error('SQL test target is not configured. Set SQL_WRITE_TEST_SERVER, SQL_WRITE_TEST_DATABASE, SQL_WRITE_TEST_USER, and SQL_WRITE_TEST_PASSWORD.')
+        : new Error(`SQL write mirror '${mirrorName}' is not configured.`);
+      error.statusCode = 503;
+      throw error;
     }
 
     return mirror;
@@ -24,10 +47,14 @@ function connectionConfigForRole(role = 'read') {
   return config.sql;
 }
 
+function connectionConfigForRole(role = 'read') {
+  return connectionConfigForPoolKey(poolKeyForRole(role));
+}
+
 function getPool(role = 'read') {
-  const normalizedRole = role === 'itemAttributes' || role === 'write' || String(role).startsWith('write:') ? role : 'read';
+  const normalizedRole = poolKeyForRole(role);
   if (!poolPromises.has(normalizedRole)) {
-    const connectionConfig = connectionConfigForRole(normalizedRole);
+    const connectionConfig = connectionConfigForPoolKey(normalizedRole);
     const poolPromise = new sql.ConnectionPool({
       server: connectionConfig.server,
       port: connectionConfig.port,
@@ -274,5 +301,7 @@ module.exports = {
   getTables,
   getAllCompanyTables,
   getCompanyConfig,
-  bracket
+  bracket,
+  runInTestMode,
+  isTestMode
 };

@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, resolveTable, bracket } = require('./db');
+const { sql, getPool, getTables, getAllCompanyTables, getCompanyConfig, resolveTable, bracket, runInTestMode, isTestMode } = require('./db');
 const config = require('./config');
 const bcApi = require('./bcApi');
 const mpesa = require('./mpesa');
@@ -9,12 +9,23 @@ const { addItemUnits } = require('./itemUnits');
 
 const router = express.Router();
 // A path-selected test mode cannot be overridden by request body/query targets.
+// Test mode sends every SQL read and write (and default BC API calls) to the test target.
 router.use('/test', (req, res, next) => {
   req.testWritesOnly = true;
-  router(req, res, next);
+  runInTestMode(() => router(req, res, next));
 });
 
-function requireTestTarget(provider) {
+// A BC API destination is the full company endpoint, so test and live may share a base URL
+// as long as they resolve to a different company (or API publisher/group/version).
+function bcApiCompanyEndpoint(target, companyCode) {
+  const code = getCompanyConfig(companyCode).code;
+  const companyId = (target.companyIds || {})[code] || code;
+  return [target.baseUrl, 'api', target.publisher, target.group, target.version, `companies(${companyId})`]
+    .map((part) => String(part || '').trim().replace(/\/+$/, '').toLowerCase())
+    .join('/');
+}
+
+function requireTestTarget(provider, companyCode) {
   const isSql = provider === 'sql';
   const target = (isSql ? config.sqlWriteMirrors : config.bcApiMirrors).find((entry) => entry.name === 'test');
   const normalize = (value) => String(value || '').trim().replace(/\/+$/, '').toLowerCase();
@@ -28,11 +39,13 @@ function requireTestTarget(provider) {
     .map(([suffix]) => `${prefix}_${suffix}`);
   const sameDestination = !missingVars.length && (isSql
     ? normalize(target.server) === normalize(primary.server) && target.port === primary.port && normalize(target.database) === normalize(primary.database)
-    : normalize(target.baseUrl) === normalize(primary.baseUrl));
+    : bcApiCompanyEndpoint(target, companyCode) === bcApiCompanyEndpoint(primary, companyCode));
   if (missingVars.length || sameDestination) {
     const reason = missingVars.length
       ? `Missing environment variables: ${missingVars.join(', ')}.`
-      : `${prefix} points at the same destination as the primary write target.`;
+      : isSql
+        ? `${prefix} points at the same server, port and database as SQL_WRITE_*.`
+        : `${prefix} resolves to the same company endpoint as BC_API_*. When the base URL is shared, set BC_API_TEST_COMPANY_IDS to the test company GUIDs.`;
     const error = new Error(`${prefix} must configure a separate test destination. Test writes cannot use the primary destination. ${reason}`);
     error.statusCode = 503;
     throw error;
@@ -220,10 +233,13 @@ function maskedSqlInfo(sqlConfig) {
 
 function maskedDatabaseInfo(companyCode) {
   const company = getCompanyConfig(companyCode);
+  const testTarget = isTestMode() ? config.sqlWriteMirrors.find((target) => target.name === 'test') : null;
+  const readTarget = isTestMode() ? testTarget || {} : config.sql;
   return {
-    ...maskedSqlInfo(config.sql),
-    read: maskedSqlInfo(config.sql),
-    write: maskedSqlInfo(config.sqlWrite),
+    ...maskedSqlInfo(readTarget),
+    mode: isTestMode() ? 'test' : 'live',
+    read: maskedSqlInfo(readTarget),
+    write: maskedSqlInfo(isTestMode() ? testTarget || {} : config.sqlWrite),
     writeMirrors: config.sqlWriteMirrors.map((target) => ({
       name: target.name,
       ...maskedSqlInfo(target)
@@ -1391,11 +1407,11 @@ async function getImportedOrdersMissingOnTest(req) {
     : '';
   const pagination = paginationFromQuery(req.query);
   const [livePool, testPool] = await Promise.all([
-    getPool('write'),
+    getPool('write:primary'),
     getPool('write:test')
   ]);
   const [liveTables, testTables] = await Promise.all([
-    getTables(company.code, 'write'),
+    getTables(company.code, 'write:primary'),
     getTables(company.code, 'write:test')
   ]);
   const [liveLines, testLines] = await Promise.all([
@@ -1526,11 +1542,11 @@ async function pushImportedOrdersMissingToTest(req) {
   const shipmentDateToValue = optionalString(req.query.shipmentDateTo || req.body?.shipmentDateTo);
   const shipmentDateTo = shipmentDateToValue ? toBcDate(shipmentDateToValue, 'shipmentDateTo') : '';
   const [livePool, testPool] = await Promise.all([
-    getPool('write'),
+    getPool('write:primary'),
     getPool('write:test')
   ]);
   const [liveTables, testTables] = await Promise.all([
-    getTables(company.code, 'write'),
+    getTables(company.code, 'write:primary'),
     getTables(company.code, 'write:test')
   ]);
   const result = {
@@ -3277,7 +3293,7 @@ router.post('/bc-api/imported-orders', asyncHandler(async (req, res) => {
   const document = buildImportedDocumentFromBody(body, company);
 
   const targets = req.testWritesOnly
-    ? [{ name: 'test', config: requireTestTarget('bcApi') }]
+    ? [{ name: 'test', config: requireTestTarget('bcApi', company.code) }]
     : [{ name: 'primary', config: config.bcApi }, ...config.bcApiMirrors.map((target) => ({ name: target.name, config: target }))];
 
   if (config.access.sqlEnabled && !req.testWritesOnly) {
