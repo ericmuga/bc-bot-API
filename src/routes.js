@@ -19,14 +19,21 @@ function requireTestTarget(provider) {
   const target = (isSql ? config.sqlWriteMirrors : config.bcApiMirrors).find((entry) => entry.name === 'test');
   const normalize = (value) => String(value || '').trim().replace(/\/+$/, '').toLowerCase();
   const primary = isSql ? config.sqlWrite : config.bcApi;
-  const missing = !target || (isSql
-    ? !target.server || !target.database || !target.user || !target.password
-    : !target.baseUrl);
-  const sameDestination = !missing && (isSql
+  const prefix = isSql ? 'SQL_WRITE_TEST' : 'BC_API_TEST';
+  const required = isSql
+    ? { SERVER: 'server', DATABASE: 'database', USER: 'user', PASSWORD: 'password' }
+    : { BASE_URL: 'baseUrl' };
+  const missingVars = Object.entries(required)
+    .filter(([, key]) => !target || !target[key])
+    .map(([suffix]) => `${prefix}_${suffix}`);
+  const sameDestination = !missingVars.length && (isSql
     ? normalize(target.server) === normalize(primary.server) && target.port === primary.port && normalize(target.database) === normalize(primary.database)
     : normalize(target.baseUrl) === normalize(primary.baseUrl));
-  if (missing || sameDestination) {
-    const error = new Error(`${isSql ? 'SQL_WRITE_TEST' : 'BC_API_TEST'} must configure a separate test destination. Test writes cannot use the primary destination.`);
+  if (missingVars.length || sameDestination) {
+    const reason = missingVars.length
+      ? `Missing environment variables: ${missingVars.join(', ')}.`
+      : `${prefix} points at the same destination as the primary write target.`;
+    const error = new Error(`${prefix} must configure a separate test destination. Test writes cannot use the primary destination. ${reason}`);
     error.statusCode = 503;
     throw error;
   }
